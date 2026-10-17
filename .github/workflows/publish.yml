@@ -6,6 +6,9 @@ on:
   workflow_dispatch:
 
 
+permissions:
+  id-token: write   # PyPI trusted publishing (OIDC)
+
 jobs:
   test-first:
     # 全矩阵测试通过才允许发布
@@ -40,14 +43,12 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
-    environment: pypi
+    environment: release
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: dist
           path: dist/
 
-      - name: Publish to PyPI
+      - name: Publish to PyPI (trusted publishing, OIDC)
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}

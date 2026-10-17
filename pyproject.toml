@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mpdt"
-version = "0.2.1"
+version = "0.2.2"
 description = "公众号运营数据本地 CLI：把后台三源数据抓回本机 SQLite，一键生成周报"
 readme = "README.md"
 license = { text = "MIT" }

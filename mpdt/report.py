@@ -1,7 +1,7 @@
-"""周报生成（FR5）：Markdown + HTML；文首口径说明（R4）——由 metrics.py 注册表生成。
+"""周报生成（FR5）：Markdown + HTML；文首口径说明（R4）——由 metrics.py CONCEPTS 生成。
 
-跨源对照表：同一篇文章的 datacube 完读率(7天) vs article_detail 完读率(30天)并排，
-自动标注窗口差异与差值，并提醒不可直接比。
+跨 series 对照：对任何含 ≥2 series 的概念（完读率 / 阅读量 / 分享 / 点赞 / 评论 / 听读）
+各生成一张并排表，自动标注窗口/分母差异与差值，提醒不可直接比。
 """
 import datetime as dt
 import html as html_mod
@@ -9,10 +9,7 @@ import json
 import os
 
 from . import metrics as metrics_mod
-from .metrics import calibration_note   # 口径说明唯一来源：注册表，不再硬编码
-
-# 跨源对照的配对定义（字段级 → 也登记在 metrics.CROSS_SOURCE_PAIRS，这里绑定报告用列）
-_PAIR = ('finish_read_rate', 'datacube_article', 'finished_read_pv_ratio', 'article_detail')
+from .metrics import calibration_note, auto_pairs
 
 
 def _week_bounds(iso_week: str):
@@ -27,44 +24,78 @@ def _md_table(header, rows):
     return '\n'.join(out)
 
 
-def cross_source_table(con) -> tuple:
-    """跨源对照：datacube 完读率(7天窗口) vs article_detail 完读率(30天窗口) 并排。
+def _latest_by_key(con, source):
+    """取 (source) 下每个 (appmsgid, itemidx) 的最新 stat_date 快照行 → dict。"""
+    rows = con.execute(
+        "SELECT appmsgid, itemidx, stat_date, title, metrics FROM snapshots "
+        "WHERE source=? ORDER BY stat_date", (source,)).fetchall()
+    best = {}
+    for am, ix, sd, ti, m in rows:
+        best[(str(am), int(ix))] = (sd, ti, json.loads(m))   # 后写=更新快照日
+    return best
 
-    匹配键 = (appmsgid, itemidx)，各取最新 stat_date 快照行。
-    返回 (header, rows, note)；rows 每行差值列=百分比点的原始差（dc-ad）。
+
+def _rows_for_pair(con, concept, sa_key, sb_key, fld_a, fld_b):
+    """两条 series 的并排 + 差值 + 窗口标注。ratio 概念按百分比格式，否则原值。
+
+    concept: 概念名（用于决定格式：'比例' 单位 → ×100；其它 → 原值）。
     """
-    def _latest(source):
-        rows = con.execute(
-            "SELECT appmsgid, itemidx, stat_date, title, metrics FROM snapshots "
-            "WHERE source=? ORDER BY stat_date", (source,)).fetchall()
-        best = {}
-        for am, ix, sd, ti, m in rows:
-            best[(str(am), int(ix))] = (sd, ti, json.loads(m))   # 后写=更新快照日
-        return best
-
-    dc, ad = _latest(_PAIR[1]), _latest(_PAIR[3])
-    f_dc, f_ad = _PAIR[0], _PAIR[2]
-    m_dc = metrics_mod.lookup(f_dc, _PAIR[1])
-    m_ad = metrics_mod.lookup(f_ad, _PAIR[3])
-    header = ['文章', 'appmsgid_itemidx', 'datacube 完读率(7天)', '单篇页完读率(30天)',
-              '差值(百分点)', '窗口差异']
+    is_ratio = '比例' in metrics_mod.CONCEPTS[concept]['unit']
+    da, db = _latest_by_key(con, sa_key), _latest_by_key(con, sb_key)
     rows = []
-    for key in sorted(set(dc) & set(ad)):
-        sd_dc, ti_dc, mm_dc = dc[key]
-        sd_ad, ti_ad, mm_ad = ad[key]
-        v_dc, v_ad = mm_dc.get(f_dc), mm_ad.get(f_ad)
-        if not (isinstance(v_dc, (int, float)) and isinstance(v_ad, (int, float))):
+    for key in sorted(set(da) & set(db)):
+        sd_a, ti_a, mm_a = da[key]
+        sd_b, ti_b, mm_b = db[key]
+        v_a, v_b = mm_a.get(fld_a), mm_b.get(fld_b)
+        if not (isinstance(v_a, (int, float)) and isinstance(v_b, (int, float))):
             continue
-        title = (ti_dc or ti_ad or '')[:36]
-        rows.append([title, '%s_%d' % key,
-                     '%.1f%%' % (100 * v_dc), '%.1f%%' % (100 * v_ad),
-                     '%+.1f' % (100 * (v_dc - v_ad)),
-                     '%s vs %s' % (m_dc.window, m_ad.window)])
-    note = ('（⚠ 不可直接比：`%s`=%s·分母「%s」；`%s`=%s·分母「%s」——'
-            '窗口与分母均不同，差值仅提示两口径的观察差异，非同一口径变化。）' % (
-                f_dc, m_dc.window, m_dc.denominator,
-                f_ad, m_ad.window, m_ad.denominator))
-    return header, rows, note
+        title = (ti_a or ti_b or '')[:36]
+        if is_ratio:
+            ca_str = '%.1f%%' % (100 * v_a)
+            cb_str = '%.1f%%' % (100 * v_b)
+            diff = '%+.1f' % (100 * (v_a - v_b))
+        else:
+            ca_str = str(int(v_a)) if float(v_a).is_integer() else ('%.1f' % v_a)
+            cb_str = str(int(v_b)) if float(v_b).is_integer() else ('%.1f' % v_b)
+            diff = '%+g' % (v_a - v_b)
+        rows.append([title, '%s_%d' % key, ca_str, cb_str, diff,
+                     '%s vs %s' % (W_OF[sa_key], W_OF[sb_key])])
+    return rows
+
+
+W_OF = {metrics_mod.SRC_PL: '实时累计', metrics_mod.SRC_DC: '7 天窗口', metrics_mod.SRC_AD: '30 天窗口'}
+
+
+def cross_source_table(con, concept: str = None) -> list:
+    """跨 series 对照：返回 list of {concept, display, header, rows, note}。
+
+    不再硬编码只对照完读率：对任何含 ≥2 series 的概念都生成一张并排表。
+    concept 给定时只返回该概念；否则返回全部。
+    """
+    out = []
+    for cname, a, b, why in auto_pairs():
+        c = metrics_mod.CONCEPTS[cname]
+        if concept and concept not in (cname, c['display']):
+            continue
+        sa, sb = c['series'][a], c['series'][b]
+        rows = _rows_for_pair(con, cname, sa['source'], sb['source'],
+                              sa['field'], sb['field'])
+        if not rows and not concept:
+            # 周报里无交集的也展示（标注空），让读者看到"为何该周无对照"
+            pass
+        is_ratio = '比例' in c['unit']
+        header = ['文章', 'appmsgid_itemidx',
+                  '%s(%s)' % (c['display'], a),
+                  '%s(%s)' % (c['display'], b),
+                  '差值(百分点)' if is_ratio else '差值',
+                  '窗口差异']
+        note = ('（⚠ 不可直接比：概念「%s」series `%s`(%s·字段 `%s`·分母「%s」) vs series `%s`(%s·字段 `%s`·分母「%s」)——%s）' % (
+            c['display'],
+            a, sa['window'], sa['field'], sa['denominator'],
+            b, sb['window'], sb['field'], sb['denominator'], why))
+        out.append({'concept': cname, 'display': c['display'],
+                    'pair': (a, b), 'header': header, 'rows': rows, 'note': note})
+    return out
 
 
 def generate(con, iso_week: str, out_dir: str) -> dict:
@@ -74,11 +105,11 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
         "SELECT stat_date, title, metrics FROM snapshots WHERE source='datacube_article' "
         "AND stat_date BETWEEN ? AND ? ORDER BY stat_date", (b, e)).fetchall()
     arts = [(sd, ti, json.loads(m)) for sd, ti, m in rows]
-    # 完读率 Top10（按 appmsgid+itemidx 去重，取最新快照日的行）
+    # 完读率 Top10（取 datacube 7 天完读率，跨 series 对照里也会出 dc7/ad30 并排）
     by_key = {}
     for sd, ti, m in arts:
         if m.get('finish_read_rate'):
-            key = (ti, sd)                      # sd 参与 key 保多日快照
+            key = (ti, sd)
             by_key[key] = m
     top = sorted(by_key.items(), key=lambda kv: -float(kv[1]['finish_read_rate']))[:10]
     top_rows = [[kv[0][0][:40]] + [kv[1].get(k, '') for k in
@@ -92,18 +123,28 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
     else:
         lines.append('本周无 datacube 快照数据（fetch 未覆盖该周，或均为 T+1 未出）。')
 
-    # 跨源对照（同一篇文章：7 天完读率 vs 30 天完读率并排 + 窗口差异 + 差值）
-    hdr, xrows, xnote = cross_source_table(con)
-    lines.append('')
-    lines.append('## 跨源对照：datacube(7天) vs 单篇页(30天) 完读率')
-    if xrows:
-        lines.append(_md_table(hdr, xrows))
-        lines.append(xnote)
+    # 跨 series 对照：所有 ≥2 series 概念各自一张并排表
+    blocks = cross_source_table(con)
+    cross_rows_total = 0
+    if blocks:
+        lines.append('')
+        lines.append('## 跨 series 对照（同概念多 series 不可直接比）')
+        for blk in blocks:
+            lines.append('')
+            lines.append('### 概念「%s」: series `%s` vs `%s`' % (
+                blk['display'], blk['pair'][0], blk['pair'][1]))
+            if blk['rows']:
+                lines.append(_md_table(blk['header'], blk['rows']))
+                cross_rows_total += len(blk['rows'])
+            else:
+                lines.append('（本周无跨 series 可对照行：需 (appmsgid,itemidx) 同时存在两源快照。）')
+            lines.append(blk['note'])
     else:
-        lines.append('（本周无跨源可对照文章：需同一 (appmsgid,itemidx) 同时存在 '
-                     'datacube_article 与 article_detail 两个源的快照。）')
+        lines.append('')
+        lines.append('## 跨 series 对照')
+        lines.append('（本周 CONCEPTS 中无多 series 概念，无需对照。）')
 
-    # 单篇渠道构成（FR3②，30 天窗口口径；推荐/搜一搜占比是主路径放量的核心读数）
+    # 单篇渠道构成（FR3②，30 天窗口口径）
     det = con.execute(
         "SELECT stat_date, title, metrics FROM snapshots WHERE source='article_detail' "
         "ORDER BY stat_date DESC, appmsgid DESC LIMIT 15").fetchall()
@@ -138,6 +179,7 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
     open(html_path, 'w').write(
         '<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">'
         f'<title>mpdt 周报 {iso_week}</title></head><body><pre>{html_mod.escape(md)}</pre></body></html>')
-    # 写后读回（T2）
     assert open(md_path).read() == md and '口径说明' in open(md_path).read()
-    return {'md': md_path, 'html': html_path, 'rows': len(arts), 'cross_rows': len(xrows)}
+    return {'md': md_path, 'html': html_path, 'rows': len(arts),
+            'cross_rows': cross_rows_total,
+            'concepts_compared': [b['concept'] for b in blocks]}

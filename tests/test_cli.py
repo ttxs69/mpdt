@@ -283,47 +283,71 @@ class TestDetailStubbed(CliBase):
 
 
 class TestMetricsCmd(CliBase):
-    """mpdt metrics list：人读表格 + --json；退出码 0；不依赖配置/网络。"""
+    """mpdt metrics：按概念分组的人读视图 + --json；退出码 0；不依赖配置/网络。"""
 
-    def test_metrics_list_human_table(self):
+    def test_metrics_list_human_grouped_by_concept(self):
         rc, out, err = self.run_cli(['metrics'])
         self.assertEqual(rc, 0)
-        self.assertIn('规范名', out)
-        self.assertIn('finish_read_rate', out)
-        self.assertIn('不可直接比', out)          # 跨源易混淆配对提醒
+        # 按概念分组的人读：每个概念都有 `## 概念名` 标题
+        self.assertIn('## 完读率', out)
+        self.assertIn('finish_read_rate', out)            # series 字段名
+        self.assertIn('不可直接比', out)                  # 自动配对
+        # 应有「跨 series 易混淆配对」小节
+        self.assertIn('跨 series 易混淆配对', out)
 
-    def test_metrics_list_json_payload_shape(self):
+    def test_metrics_list_json_concepts_structure(self):
         rc, out, err = self.run_cli(['--json', 'metrics'])
         self.assertEqual(rc, 0)
         p = json.loads(out)
         self.assertEqual(p['ok'], True)
         self.assertEqual(p['cmd'], 'metrics')
-        self.assertEqual(p['meta']['total'], len(p['data']))
-        for e in p['data']:
-            self.assertEqual(set(e) >= {'name', 'field', 'source', 'window',
-                                        'denominator', 'unit', 'comparable'}, True)
+        # data.concepts 是 list；data.auto_pairs 是 list
+        self.assertIn('concepts', p['data'])
+        self.assertIn('auto_pairs', p['data'])
+        self.assertEqual(p['meta']['total_concepts'], len(p['data']['concepts']))
+        self.assertEqual(p['meta']['total_series'],
+                         sum(len(c['series']) for c in p['data']['concepts']))
+        for c in p['data']['concepts']:
+            self.assertEqual(set(c) >= {'concept', 'display', 'unit', 'series'}, True)
+            for s in c['series']:
+                self.assertEqual(set(s) >= {'key', 'source', 'field', 'window',
+                                            'window_days', 'denominator'}, True)
 
-    def test_metrics_query_finish_read_rate(self):
-        rc, out, err = self.run_cli(['metrics', 'finish_read_rate'])
+    def test_metrics_query_finish_read_rate_shows_both_series(self):
+        # "完读率" 命中 read_completion 概念 → 应同时展示 dc7 + ad30 两个 series
+        rc, out, err = self.run_cli(['metrics', '完读率'])
         self.assertEqual(rc, 0)
+        self.assertIn('finish_read_rate', out)
+        self.assertIn('finished_read_pv_ratio', out)
         self.assertIn('7 天窗口', out)
-        self.assertNotIn('read_uv', out)          # 过滤后只含命中项
+        self.assertIn('30 天窗口', out)
         self.assertIn('不可直接比', out)
+        # 其它概念（如阅读量）不应被列出
+        self.assertNotIn('total_pv', out)
 
     def test_metrics_query_no_match_still_exit0(self):
         rc, out, err = self.run_cli(['--json', 'metrics', '不存在的指标'])
         self.assertEqual(rc, 0)                   # 空结果=成功（与空数据语义一致）
         p = json.loads(out)
-        self.assertEqual(p['data'], [])
-        self.assertEqual(p['meta']['total'], 0)
+        self.assertEqual(p['data']['concepts'], [])
+        self.assertEqual(p['meta']['total_concepts'], 0)
 
-    def test_metrics_query_read_rate_matches_both_sources(self):
-        # 'read_rate' 子串命中 finish_read_rate / read_rate 等 → 多行
-        rc, out, err = self.run_cli(['--json', 'metrics', 'read_rate'])
+    def test_metrics_query_read_volume_lists_three_series(self):
+        # "阅读量" 概念下应有 pl / dc7 / ad30 三个 series
+        rc, out, err = self.run_cli(['--json', 'metrics', '阅读量'])
+        self.assertEqual(rc, 0)
         p = json.loads(out)
-        fields = {e['field'] for e in p['data']}
-        self.assertIn('read_rate', fields)
-        self.assertIn('finish_read_rate', fields)
+        c = next(c for c in p['data']['concepts'] if c['concept'] == 'read_volume')
+        keys = {s['key'] for s in c['series']}
+        self.assertEqual(keys, {'pl', 'dc7', 'ad30'})
+
+    def test_auto_pairs_present_in_json(self):
+        # --json 输出的 auto_pairs 至少含 完读率 + 阅读量 + 评论 等多 series 概念
+        rc, out, err = self.run_cli(['--json', 'metrics'])
+        p = json.loads(out)
+        pair_concepts = {ap['concept'] for ap in p['data']['auto_pairs']}
+        for c in ('read_completion', 'read_volume', 'comment', 'like', 'listen', 'share'):
+            self.assertIn(c, pair_concepts, 'auto_pairs 应自动推导概念 %s' % c)
 
 
 class TestExitCodes(CliBase):

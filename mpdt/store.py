@@ -56,10 +56,12 @@ def csv_metric_meta(source: str, keys) -> list:
     """
     out = []
     for k in keys:
-        m = metrics_mod.lookup(k, source)
-        if m:
-            out.append([k, m.source, m.window, m.denominator, m.unit,
-                        '是' if m.comparable else '否'])
+        hit = metrics_mod.find_series(field=k, source=source)
+        if hit:
+            _, _, s = hit
+            out.append([k, s['source'], s['window'], s['denominator'],
+                        metrics_mod.CONCEPTS[metrics_mod.find_series(field=k, source=source)[0]]['unit'],
+                        '否'])
         else:
             out.append([k, source, '(未登记)', '(未登记)', '(未登记)', '(未登记)'])
     return out

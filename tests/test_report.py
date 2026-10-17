@@ -1,4 +1,5 @@
-"""report 单元测试（T2）：_week_bounds / _md_table / generate（含空数据周）。
+"""report 单元测试（T2）：_week_bounds / _md_table / generate（含空数据周）/ 跨 series 对照。
+
 运行：python3 tests/test_report.py 或 unittest discover  （零第三方依赖）
 """
 import json
@@ -32,7 +33,6 @@ class TestWeekBounds(unittest.TestCase):
         self.assertEqual(sunday.isoformat(), '2026-10-18')
 
     def test_year_boundary_into_next_year(self):
-        # 2026-W01 的周一是 2025-12-29：跨年周必须用 ISO 日历而非 1 月 1 日对齐
         monday, sunday = report._week_bounds('2026-W01')
         self.assertEqual(monday.isoformat(), '2025-12-29')
         self.assertEqual(sunday.isoformat(), '2026-01-04')
@@ -67,6 +67,8 @@ class ReportBase(unittest.TestCase):
         self.con = store.connect(os.path.join(self._tmp.name, 'db.sqlite3'))
         self.out_dir = os.path.join(self._tmp.name, 'reports')
         # fixture：W42（2026-10-12 ~ 10-18）内三篇 datacube 文章 + 两篇 article_detail
+        # 故意让 article_detail 的 read_uv 与 datacube 的 total_pv 也共 appmsgid，
+        # 以便跨 series 对照能同时覆盖「完读率」与「阅读量」两个概念
         for i, (am, fr) in enumerate([('mA', 0.10), ('mB', 0.40), ('mC', 0.25)]):
             store.upsert(self.con, 'datacube_article', '2026-10-1%d' % (2 + i), am, 1,
                          '文章' + am, {'refdate': '2026-10-1%d' % (2 + i),
@@ -76,6 +78,13 @@ class ReportBase(unittest.TestCase):
                      _detail_metrics(190, 0.25))
         store.upsert(self.con, 'article_detail', '2026-10-16', 'mB', 1, '文章mB',
                      _detail_metrics(500, 0.31, pub='2026-10-13'))
+        # 同步 publish_list 也造两条，确保「阅读量」概念 pl vs dc7 配对也能生成表格
+        store.upsert(self.con, 'publish_list', '2026-10-17', 'mA', 1, '文章mA',
+                     {'read_num': 80, 'share_num': 5, 'like_num': 1,
+                      'old_like_num': 1, 'comment_num': 0})
+        store.upsert(self.con, 'publish_list', '2026-10-16', 'mB', 1, '文章mB',
+                     {'read_num': 220, 'share_num': 8, 'like_num': 2,
+                      'old_like_num': 1, 'comment_num': 1})
         self.con.commit()
 
     def tearDown(self):
@@ -84,12 +93,22 @@ class ReportBase(unittest.TestCase):
 
 
 class TestCrossSourceTable(ReportBase):
-    def test_pairs_matched_with_window_and_delta(self):
-        hdr, rows, note = report.cross_source_table(self.con)
-        # fixture：mA 与 mB 两篇在两源都有 → 2 行
-        self.assertEqual(len(rows), 2)
-        self.assertIn('appmsgid_itemidx', hdr)
-        by_key = {r[1]: r for r in rows}
+    """跨 series 对照：泛化到任意 ≥2 series 概念；返回 list of {concept, header, rows, note}。"""
+
+    def test_returns_block_per_pair(self):
+        blocks = report.cross_source_table(self.con)
+        # 至少要含 完读率 + 阅读量 + 分享 + 点赞 + 评论 + 听读 六个概念的配对
+        concepts_seen = {b['concept'] for b in blocks}
+        for c in ('read_completion', 'read_volume', 'share', 'like', 'comment', 'listen'):
+            self.assertIn(c, concepts_seen, '跨 series 对照应含概念 %s' % c)
+
+    def test_finish_read_pair_matched_with_window_and_delta(self):
+        blocks = report.cross_source_table(self.con)
+        blk = next(b for b in blocks if b['concept'] == 'read_completion')
+        # fixture：mA 与 mB 两篇同时有 dc7 和 ad30
+        self.assertEqual(len(blk['rows']), 2)
+        self.assertIn('appmsgid_itemidx', blk['header'])
+        by_key = {r[1]: r for r in blk['rows']}
         # mA：dc 0.10 vs ad 0.25 → -15.0 百分点
         self.assertEqual(by_key['mA_1'][2], '10.0%')
         self.assertEqual(by_key['mA_1'][3], '25.0%')
@@ -99,13 +118,24 @@ class TestCrossSourceTable(ReportBase):
         # mB：dc 0.40 vs ad 0.31 → +9.0
         self.assertEqual(by_key['mB_1'][4], '+9.0')
 
+    def test_read_volume_pair_uses_count_format_not_percent(self):
+        # 阅读量 (total_pv=100 vs read_uv=190) 不应被误格式化为百分比
+        blocks = report.cross_source_table(self.con)
+        blk = next(b for b in blocks if b['concept'] == 'read_volume'
+                   and set(b['pair']) == {'dc7', 'ad30'})
+        self.assertTrue(blk['rows'])
+        for r in blk['rows']:
+            self.assertNotIn('%', r[2])
+            self.assertNotIn('%', r[3])
+
     def test_note_warns_not_comparable(self):
-        _, _, note = report.cross_source_table(self.con)
-        self.assertIn('不可直接比', note)
-        self.assertIn('finish_read_rate', note)
-        self.assertIn('finished_read_pv_ratio', note)
-        self.assertIn('7 天窗口', note)
-        self.assertIn('30 天窗口', note)
+        blocks = report.cross_source_table(self.con)
+        blk = next(b for b in blocks if b['concept'] == 'read_completion')
+        self.assertIn('不可直接比', blk['note'])
+        self.assertIn('finish_read_rate', blk['note'])
+        self.assertIn('finished_read_pv_ratio', blk['note'])
+        self.assertIn('7 天窗口', blk['note'])
+        self.assertIn('30 天窗口', blk['note'])
 
     def test_no_overlap_gives_empty_rows(self):
         con2 = store.connect(os.path.join(self._tmp.name, 'mem.sqlite3'))
@@ -113,22 +143,37 @@ class TestCrossSourceTable(ReportBase):
                      {'finish_read_rate': 0.1})
         store.upsert(con2, 'article_detail', '2026-10-16', 'mZ', 1, 'z',
                      {'finished_read_pv_ratio': 0.2})
-        hdr, rows, note = report.cross_source_table(con2)
-        self.assertEqual(rows, [])
+        blocks = report.cross_source_table(con2)
+        blk = next(b for b in blocks if b['concept'] == 'read_completion')
+        self.assertEqual(blk['rows'], [])
         con2.close()
 
     def test_latest_snapshot_wins_per_key(self):
         # mA 在 article_detail 有 10-16 与 10-17 两个快照 → 取 10-17（0.25）
-        hdr, rows, note = report.cross_source_table(self.con)
-        by_key = {r[1]: r for r in rows}
+        blocks = report.cross_source_table(self.con)
+        blk = next(b for b in blocks if b['concept'] == 'read_completion')
+        by_key = {r[1]: r for r in blk['rows']}
         self.assertEqual(by_key['mA_1'][3], '25.0%')
 
     def test_missing_ratio_value_skipped(self):
         store.upsert(self.con, 'article_detail', '2026-10-17', 'mC', 1, '文章mC',
                      {'read_uv': 10})        # 无 finished_read_pv_ratio
         self.con.commit()
-        hdr, rows, note = report.cross_source_table(self.con)
-        self.assertEqual(len(rows), 2)       # mC 不进对照表
+        blocks = report.cross_source_table(self.con)
+        blk = next(b for b in blocks if b['concept'] == 'read_completion')
+        # mC 不进对照表
+        self.assertEqual(len(blk['rows']), 2)
+
+    def test_concept_filter_returns_only_matching(self):
+        # concept 参数只返回该概念
+        blocks = report.cross_source_table(self.con, concept='read_completion')
+        self.assertEqual({b['concept'] for b in blocks}, {'read_completion'})
+
+    def test_no_hardcoded_finish_read_rate_only(self):
+        # 回归保护：cross_source_table 不能再只对照完读率一对
+        blocks = report.cross_source_table(self.con)
+        self.assertGreaterEqual(len({b['concept'] for b in blocks}), 2,
+                                'cross_source_table 必须泛化到 ≥2 个概念')
 
 
 class TestGenerate(ReportBase):
@@ -142,39 +187,44 @@ class TestGenerate(ReportBase):
     def test_md_content_calibration_and_top_ordering(self):
         out = report.generate(self.con, '2026-W42', self.out_dir)
         md = open(out['md']).read()
-        # 文首口径说明（R4，由注册表生成）与周区间
+        # 文首口径说明（R4，由 CONCEPTS 生成）与周区间
         self.assertIn('口径说明', md)
-        self.assertIn('mpdt/metrics.py 注册表生成', md)
+        self.assertIn('mpdt/metrics.py 概念树生成', md)
         self.assertIn('2026-10-12 ~ 2026-10-18', md)
         # Top10 按完读率降序：mB(0.40) > mC(0.25) > mA(0.10)
         self.assertLess(md.index('文章mB'), md.index('文章mC'))
         self.assertLess(md.index('文章mC'), md.index('文章mA'))
-        # 单篇渠道构成段：推荐/公众号消息/搜一搜三列有读数
+        # 单篇渠道构成段
         self.assertIn('单篇渠道构成', md)
-        self.assertIn('45.0', md)   # 推荐%
-        self.assertIn('25.0%', md)  # 完读率 0.25 → 25.0%
-        # HTML 转义包裹正文
+        self.assertIn('45.0', md)
+        self.assertIn('25.0%', md)
         html = open(out['html']).read()
         self.assertIn('<pre>', html)
         self.assertIn('口径说明', html)
 
-    def test_md_contains_cross_source_section(self):
+    def test_md_contains_cross_series_section(self):
         out = report.generate(self.con, '2026-W42', self.out_dir)
         md = open(out['md']).read()
-        self.assertIn('跨源对照', md)
+        self.assertIn('跨 series 对照', md)
+        # 至少出现 2 个概念
+        self.assertIn('概念「完读率」', md)
+        self.assertIn('概念「阅读量」', md)
         self.assertIn('mA_1', md)
-        self.assertIn('-15.0', md)              # dc 0.10 - ad 0.25
+        self.assertIn('-15.0', md)
         self.assertIn('不可直接比', md)
-        self.assertEqual(out['cross_rows'], 2)
+        self.assertGreaterEqual(out['cross_rows'], 3)  # 完读率 2 行 + 阅读量 2 行 + 其它
+        # 返回里也声明了对照的概念
+        self.assertIn('read_completion', out['concepts_compared'])
+        self.assertIn('read_volume', out['concepts_compared'])
 
     def test_md_cross_section_empty_without_overlap(self):
-        # 只留无交集数据 → 提示无对照文章而非报错
         con2 = store.connect(os.path.join(self._tmp.name, 'mem.sqlite3'))
         store.upsert(con2, 'datacube_article', '2026-10-15', 'mA', 1, 'a',
                      {'finish_read_rate': 0.1})
         out = report.generate(con2, '2026-W42', self.out_dir)
         md = open(out['md']).read()
-        self.assertIn('无跨源可对照文章', md)
+        # 无交集时各概念块给出"无对照行"说明
+        self.assertIn('无跨 series 可对照行', md)
         self.assertEqual(out['cross_rows'], 0)
         con2.close()
 
@@ -197,3 +247,22 @@ class TestGenerate(ReportBase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestHeaderUnitSemantics(unittest.TestCase):
+    """ratio 概念表头=差值(百分点)，计数概念表头=差值（不带百分点）。"""
+
+    def test_count_concept_header_has_no_points(self):
+        import tempfile, os
+        from mpdt import store, report as rep
+        tmp = tempfile.mkdtemp()
+        con = store.connect(os.path.join(tmp, 't.sqlite3'))
+        store.upsert(con, 'publish_list', '2026-10-16', '999', 1, '甲',
+                     {'read_num': 96}, fetched_at='2026-10-17T09:00:00')
+        store.upsert(con, 'datacube_article', '2026-10-16', '999', 1, '甲',
+                     {'total_pv': 208}, fetched_at='2026-10-17T09:00:00')
+        con.commit()
+        for t in rep.cross_source_table(con, 'read_volume'):
+            self.assertNotIn('百分点', t['header'][4])
+        for t in rep.cross_source_table(con, 'read_completion'):
+            self.assertIn('百分点', t['header'][4])

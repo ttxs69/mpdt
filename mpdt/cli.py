@@ -210,21 +210,39 @@ def cmd_report(args):
 
 
 def cmd_metrics(args):
-    """指标口径查询（口径唯一事实源=metrics.py 注册表；查『这个字段是什么口径』）。"""
+    """指标口径查询：按概念分组的人读视图（口径唯一事实源=metrics.py CONCEPTS）。"""
     r = RES[0]
-    entries = metrics_mod.to_dicts(args.query)
+    concepts = metrics_mod.to_concepts_view(args.query)
     if not JSON_FLAG[0]:
-        print(report._md_table(
-            ['规范名', '源字段', '所属源', '窗口口径', '分母', '单位', '跨源可比'],
-            [[e['name'], e['field'], e['source'], e['window'],
-              e['denominator'], e['unit'], '是' if e['comparable'] else '否']
-             for e in entries]))
-        for fa, sa, fb, sb, why in metrics_mod.CROSS_SOURCE_PAIRS:
-            if args.query and args.query.lower() not in (fa + sa + fb + sb).lower():
-                continue
-            print('⚠ 不可直接比：%s(%s) vs %s(%s)：%s' % (fa, sa, fb, sb, why))
-    return r.result(f'共 {len(entries)} 个指标', entries, total=len(entries),
-                    query=args.query or '')
+        # 人读：按概念 → series 树
+        for c in concepts:
+            print('## %s（%s）' % (c['display'], c['concept']))
+            if c.get('note'):
+                print('  > ' + c['note'])
+            for s in c['series']:
+                print('  - `%s` · %s · 字段 `%s` · 窗口 %s (%d天) · 分母「%s」' % (
+                    s['key'], s['source'], s['field'], s['window'], s['window_days'],
+                    s['denominator']))
+                if s.get('note'):
+                    print('      注：' + s['note'])
+            print()
+        # 自动配对提醒
+        pairs = metrics_mod.auto_pairs()
+        if pairs:
+            print('── 跨 series 易混淆配对（自动推导：同概念多 series） ──')
+            for cname, a, b, why in pairs:
+                display = metrics_mod.CONCEPTS[cname]['display']
+                if args.query and args.query.lower() not in (cname + display + a + b).lower():
+                    continue
+                print('⚠ %s：`%s` vs `%s` — %s' % (cname, a, b, why))
+    return r.result('共 %d 个概念，%d 个 series' % (
+        len(concepts), sum(len(c['series']) for c in concepts)),
+        {'concepts': concepts, 'auto_pairs': [
+            {'concept': c, 'series_a': a, 'series_b': b, 'why': why}
+            for c, a, b, why in metrics_mod.auto_pairs()]},
+        total_concepts=len(concepts),
+        total_series=sum(len(c['series']) for c in concepts),
+        query=args.query or '')
 
 
 def cmd_export(args):

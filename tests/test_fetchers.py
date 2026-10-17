@@ -143,7 +143,8 @@ class TestStoreAndReport(unittest.TestCase):
             out = report.generate(con, '2026-W42', td)
             md = open(out['md']).read()
             self.assertIn('口径说明', md)
-            self.assertIn('T+1', md)
+            # 新口径说明按概念分组
+            self.assertIn('按概念分组', md)
 
 
 class TestExitSemantics(unittest.TestCase):

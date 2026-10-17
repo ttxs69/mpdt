@@ -52,19 +52,50 @@ def log_run(con, cmd: str, ok: bool, detail: str = ''):
 def csv_metric_meta(source: str, keys) -> list:
     """CSV 各指标列的口径元数据行（源字段, 所属源, 窗口, 分母, 单位, 是否跨源可比）。
 
-    口径唯一来源 = metrics.py 注册表；未登记键（如派生/上游新增字段）标注未登记。
+    口径唯一来源 = metrics.py 注册表（CONCEPTS / META_FIELDS / DEPRECATED）；
+    未登记键（如上游新增字段）标注「(未登记)」。
     """
     out = []
     for k in keys:
         hit = metrics_mod.find_series(field=k, source=source)
         if hit:
-            _, _, s = hit
-            out.append([k, s['source'], s['window'], s['denominator'],
-                        metrics_mod.CONCEPTS[metrics_mod.find_series(field=k, source=source)[0]]['unit'],
-                        '否'])
+            reg_key, _, s = hit
+            # 找单位：CONCEPTS / META_FIELDS / DEPRECATED 任一张
+            unit = '(未登记)'
+            for table in (metrics_mod.CONCEPTS, metrics_mod.META_FIELDS,
+                          metrics_mod.DEPRECATED):
+                if reg_key in table:
+                    unit = table[reg_key].get('unit', '(未登记)')
+                    break
+            # 「是否跨源可比」列：指标概念才有意义（元数据/旧版填 '不适用'）
+            kind = _meta_kind(reg_key)
+            if kind:
+                comparable = '不适用（%s）' % kind
+            elif reg_key in metrics_mod.DEPRECATED:
+                comparable = '不适用（已弃用）'
+            else:
+                comparable = '否' if _concept_series_count(reg_key) >= 2 else '是'
+            out.append([k, s['source'], s['window'], s['denominator'], unit, comparable])
         else:
             out.append([k, source, '(未登记)', '(未登记)', '(未登记)', '(未登记)'])
     return out
+
+
+def _concept_series_count(reg_key: str) -> int:
+    """查询某个登记键（非 deprecated）下的 series 数。"""
+    if reg_key in metrics_mod.CONCEPTS:
+        return sum(1 for s in metrics_mod.CONCEPTS[reg_key]['series'].values()
+                   if not s.get('deprecated'))
+    if reg_key in metrics_mod.META_FIELDS:
+        return len(metrics_mod.META_FIELDS[reg_key]['series'])
+    return 0
+
+
+def _meta_kind(reg_key: str) -> str:
+    """返回元数据键的 kind（snapshot/derived/structured）或 ''（指标概念）。"""
+    if reg_key in metrics_mod.META_FIELDS:
+        return metrics_mod.META_FIELDS[reg_key].get('kind', '')
+    return ''
 
 
 def export_csv(con, source: str, out_path: str, with_meta=True) -> int:

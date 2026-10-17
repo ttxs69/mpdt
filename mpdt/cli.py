@@ -206,15 +206,21 @@ def cmd_report(args):
     out = report.generate(con, week, args.out or 'mpdt-reports')
     return r.result(f"周报已生成：{out['md']}（数据行 {out['rows']}，跨源对照 {out['cross_rows']} 行）",
                     {'md': out['md'], 'html': out['html'], 'rows': out['rows'],
-                     'cross_rows': out['cross_rows'], 'week': week})
+                     'cross_rows': out['cross_rows'],
+                     'concepts_compared': out.get('concepts_compared', []),
+                     'concepts_empty': out.get('concepts_empty', []),
+                     'week': week})
 
 
 def cmd_metrics(args):
-    """指标口径查询：按概念分组的人读视图（口径唯一事实源=metrics.py CONCEPTS）。"""
+    """指标口径查询：按概念分组的人读视图（口径唯一事实源=metrics.py CONCEPTS）。
+
+    输出顺序：① 概念 + series；② 元数据字段；③ 旧版字段；④ 自动配对提醒。
+    """
     r = RES[0]
     concepts = metrics_mod.to_concepts_view(args.query)
     if not JSON_FLAG[0]:
-        # 人读：按概念 → series 树
+        # ① 指标概念 + series
         for c in concepts:
             print('## %s（%s）' % (c['display'], c['concept']))
             if c.get('note'):
@@ -226,7 +232,30 @@ def cmd_metrics(args):
                 if s.get('note'):
                     print('      注：' + s['note'])
             print()
-        # 自动配对提醒
+        # ② 元数据字段（非指标）— 仅当 query 不限 concept / 匹配元数据 key 时显示
+        if not args.query or any(args.query.lower() in k.lower() or args.query.lower() in m['display']
+                                  for k, m in metrics_mod.META_FIELDS.items()):
+            print('── 元数据字段（非指标：快照日 / 派生列 / 结构列） ──')
+            for mname, m in metrics_mod.META_FIELDS.items():
+                if args.query and args.query.lower() not in (mname + m['display']).lower():
+                    continue
+                for skey, s in m['series'].items():
+                    print('  - `%s`（%s / %s）：源 %s，字段 `%s`，%s，%d天窗口' % (
+                        mname, m['display'], m['kind'], s['source'], s['field'],
+                        s['window'], s['window_days']))
+            print()
+        # ③ 旧版字段
+        if metrics_mod.DEPRECATED and (not args.query or
+                                       any(args.query.lower() in (dn + d.get('display', '')).lower()
+                                           for dn, d in metrics_mod.DEPRECATED.items())):
+            print('── 旧版字段（保留登记；不参与对照 / 不出现在 metrics 视图） ──')
+            for dname, d in metrics_mod.DEPRECATED.items():
+                if args.query and args.query.lower() not in (dname + d.get('display', '')).lower():
+                    continue
+                print('  - `%s`（%s）→ 新字段 `%s`；保留供 CSV 元数据识别上游历史返回。' % (
+                    dname, d.get('display', ''), d.get('replaced_by', '?')))
+            print()
+        # ④ 自动配对提醒
         pairs = metrics_mod.auto_pairs()
         if pairs:
             print('── 跨 series 易混淆配对（自动推导：同概念多 series） ──')
@@ -235,13 +264,16 @@ def cmd_metrics(args):
                 if args.query and args.query.lower() not in (cname + display + a + b).lower():
                     continue
                 print('⚠ %s：`%s` vs `%s` — %s' % (cname, a, b, why))
-    return r.result('共 %d 个概念，%d 个 series' % (
-        len(concepts), sum(len(c['series']) for c in concepts)),
+    return r.result('共 %d 个概念，%d 个 series；%d 个元数据字段；%d 个旧版字段' % (
+        len(concepts), sum(len(c['series']) for c in concepts),
+        len(metrics_mod.META_FIELDS), len(metrics_mod.DEPRECATED)),
         {'concepts': concepts, 'auto_pairs': [
             {'concept': c, 'series_a': a, 'series_b': b, 'why': why}
             for c, a, b, why in metrics_mod.auto_pairs()]},
         total_concepts=len(concepts),
         total_series=sum(len(c['series']) for c in concepts),
+        total_meta=len(metrics_mod.META_FIELDS),
+        total_deprecated=len(metrics_mod.DEPRECATED),
         query=args.query or '')
 
 

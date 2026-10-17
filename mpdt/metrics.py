@@ -35,7 +35,7 @@ SOURCE_DESC = {
 # ── 概念分类树 ──────────────────────────────────────────────
 # 概念 canonical_name → {
 #   display, unit, note,
-#   series: { series_key: { source, field, window, window_days, denominator, note } }
+#   series: { series_key: { source, field, window, window_days, denominator, note, deprecated? } }
 # }
 #
 # series_key = f"{concept_canonical}@{series_key_short}"，实际写入
@@ -44,6 +44,12 @@ SOURCE_DESC = {
 # 命名哲学：series_key 是"该概念在某个 (源, 窗口) 切片下的稳定标识符"；
 # 不同概念下相同的源+窗口也可能撞 series_key，所以存取值一律走
 # `CONCEPTS[cname]['series'][series_key]`，不要把 series_key 当全局唯一键。
+#
+# 「deprecated: true」标记保留登记但不出现在：
+#   - auto_pairs（不让它参与配对）
+#   - cross_source_table 宽表（不让它占一列）
+#   - 导出元数据 *.metrics.csv 的元数据命中（仍写「(未登记)」，但导出本身不变）
+#   - to_concepts_view / readme_section / calibration_note
 CONCEPTS = {
     'read_completion': {
         'display': '完读率', 'unit': '比例(0-1)', 'note': '完读率是同一概念下的两个口径，窗口与分母均不同',
@@ -77,16 +83,19 @@ CONCEPTS = {
         },
     },
     'like': {
-        'display': '点赞(在看)', 'unit': '次',
+        'display': '点赞', 'unit': '次',
         'series': {
             'pl':   {'source': SRC_PL, 'field': 'like_num', 'window': W_PL, 'window_days': 0,
                      'denominator': '-', 'note': '实时累计点赞数'},
-            'pl2':  {'source': SRC_PL, 'field': 'old_like_num', 'window': W_PL, 'window_days': 0,
-                     'denominator': '-', 'note': '旧版字段（保留），口径与 like_num 相当'},
             'ad30': {'source': SRC_AD, 'field': 'like_cnt', 'window': W_AD, 'window_days': 30,
                      'denominator': '-', 'note': '单篇页 30 天窗口·点赞数'},
-            'ad30z':{'source': SRC_AD, 'field': 'zaikan_cnt', 'window': W_AD, 'window_days': 30,
-                     'denominator': '-', 'note': '单篇页 30 天窗口·「在看」数（与点赞同概念不同命名）'},
+        },
+    },
+    'wow': {
+        'display': '在看', 'unit': '次',
+        'series': {
+            'ad30': {'source': SRC_AD, 'field': 'zaikan_cnt', 'window': W_AD, 'window_days': 30,
+                     'denominator': '-', 'note': '单篇页 30 天窗口·「在看」数（与点赞不同概念）'},
         },
     },
     'comment': {
@@ -133,13 +142,18 @@ CONCEPTS = {
                      'denominator': '-', 'note': '单篇页 30 天窗口·收藏人数'},
         },
     },
-    'listen': {
-        'display': '听读', 'unit': '人/次',
+    'listen_people': {
+        'display': '听读人数', 'unit': '人',
         'series': {
-            'ad30u': {'source': SRC_AD, 'field': 'listen_uv', 'window': W_AD, 'window_days': 30,
-                      'denominator': '-', 'note': '单篇页 30 天窗口·听读人数'},
-            'ad30p': {'source': SRC_AD, 'field': 'listen_pv', 'window': W_AD, 'window_days': 30,
-                      'denominator': '-', 'note': '单篇页 30 天窗口·听读次数'},
+            'ad30': {'source': SRC_AD, 'field': 'listen_uv', 'window': W_AD, 'window_days': 30,
+                     'denominator': '-', 'note': '单篇页 30 天窗口·听读人数（与听读次数不同概念）'},
+        },
+    },
+    'listen_plays': {
+        'display': '听读次数', 'unit': '次',
+        'series': {
+            'ad30': {'source': SRC_AD, 'field': 'listen_pv', 'window': W_AD, 'window_days': 30,
+                     'denominator': '-', 'note': '单篇页 30 天窗口·听读次数（与听读人数不同概念）'},
         },
     },
     'avg_read_time': {
@@ -156,40 +170,63 @@ CONCEPTS = {
                      'denominator': '-', 'note': '单篇页 30 天窗口·赞赏金额'},
         },
     },
+}
+
+# ── 元数据注册表 ────────────────────────────────────────────
+# 派生列 / 快照日 / 结构列：被 fetchers 入库但**不是指标概念**——它们没有"窗口/分母"
+# 概念，是被算出来的辅助列。仍登记口径明确"非指标"语义，从 CONCEPTS 移出后：
+#   - 不出现在 to_concepts_view / auto_pairs / cross_source_table / calibration_note
+#   - 不参与「跨 series 对照」
+#   - 仍被 find_series() / csv_metric_meta() 查询到，CSV 导出元数据继续可用
+# display 字段标注「派生列」「结构列」以便人读。
+META_FIELDS = {
     'refdate': {
-        'display': '文章口径日', 'unit': '日期',
+        'display': '文章口径日', 'kind': 'snapshot', 'unit': '日期',
         'series': {
             'dc7': {'source': SRC_DC, 'field': 'refdate', 'window': W_DC, 'window_days': 7,
                     'denominator': '-', 'note': '文章口径日（快照行 stat_date 是拉取日，两者不同）'},
         },
     },
     'publish_date': {
-        'display': '发表日', 'unit': '日期',
+        'display': '发表日', 'kind': 'snapshot', 'unit': '日期',
         'series': {
             'ad30': {'source': SRC_AD, 'field': 'publish_date', 'window': W_AD, 'window_days': 30,
                      'denominator': '-', 'note': '单篇页 30 天窗口·文章发表日'},
         },
     },
     'window_days': {
-        'display': '窗口天数', 'unit': '天',
+        'display': '窗口天数', 'kind': 'derived', 'unit': '天',
         'series': {
             'ad30': {'source': SRC_AD, 'field': 'window_days', 'window': W_AD, 'window_days': 30,
                      'denominator': '-', 'note': 'mpdt 写入的派生列（页面固定 30 天）'},
         },
     },
     'total_read_user': {
-        'display': '全渠道阅读人数(汇总)', 'unit': '人',
+        'display': '全渠道阅读人数(汇总)', 'kind': 'derived', 'unit': '人',
         'series': {
             'ad30': {'source': SRC_AD, 'field': 'total_read_user', 'window': W_AD, 'window_days': 30,
                      'denominator': '-', 'note': 'mpdt 派生列：「全部」渠道逐日 read_user 求和'},
         },
     },
     'channel_breakdown': {
-        'display': '渠道构成', 'unit': 'JSON',
+        'display': '渠道构成', 'kind': 'structured', 'unit': 'JSON',
         'series': {
             'ad30': {'source': SRC_AD, 'field': 'channel_breakdown', 'window': W_AD, 'window_days': 30,
                      'denominator': '「全部」渠道阅读人数',
                      'note': 'mpdt 派生列；同一用户多渠道重复计数 → 占比之和可 >100%（仅「全部」去重）'},
+        },
+    },
+}
+
+# ── 旧版字段：保留登记 + 显式标记 deprecated ──────────────────
+# 旧 like_num 字段 `old_like_num`（publish_list 上报），概念上与新 like_num 等价；
+# 标记 deprecated 后：从 auto_pairs / cross_source_table / 导出元数据 / metrics 视图全部排除。
+DEPRECATED = {
+    'old_like_num': {
+        'display': '旧版点赞数', 'replaced_by': 'like_num',
+        'series': {
+            'pl2': {'source': SRC_PL, 'field': 'old_like_num', 'window': W_PL, 'window_days': 0,
+                    'denominator': '-', 'note': '旧版字段（保留登记），口径与 like_num 相当'},
         },
     },
 }
@@ -205,31 +242,55 @@ def concepts() -> dict:
 
 
 def all_series():
-    """展开 CONCEPTS → 平铺 series 元组流（每个 (concept, series_key, series_dict)）。"""
+    """展开 CONCEPTS → 平铺 series 元组流（每个 (concept, series_key, series_dict)）。
+
+    排除 deprecated（不参与对照/配对）。META_FIELDS 是非指标独立表，不在此流。
+    """
     for cname, c in CONCEPTS.items():
         for skey, s in c['series'].items():
+            if s.get('deprecated'):
+                continue
             yield cname, skey, s
 
 
 def find_series(field: str = None, source: str = None):
-    """按 field 查 series（field 在 (source, field) 上唯一）；可同时按 source 限定。"""
+    """按 field 查 series（field 在 (source, field) 上唯一）；可同时按 source 限定。
+
+    查询顺序：CONCEPTS → META_FIELDS → DEPRECATED。
+    返回 (concept_or_meta_key, series_key, series_dict)。
+    """
     for cname, skey, s in all_series():
         if field is not None and s['field'] != field:
             continue
         if source is not None and s['source'] != source:
             continue
         return cname, skey, s
+    for mname, m in META_FIELDS.items():
+        for skey, s in m['series'].items():
+            if field is not None and s['field'] != field:
+                continue
+            if source is not None and s['source'] != source:
+                continue
+            return mname, skey, s
+    for dname, d in DEPRECATED.items():
+        for skey, s in d['series'].items():
+            if field is not None and s['field'] != field:
+                continue
+            if source is not None and s['source'] != source:
+                continue
+            return dname, skey, s
     return None
 
 
 def auto_pairs():
     """易混淆配对：同概念 ≥2 series 即一对；why 由 window/denominator 差异自动生成。
 
-    返回 tuple of (concept_name, series_a_key, series_b_key, why_text)。
+    deprecated / META_FIELDS 不参与。返回 tuple of (concept_name, series_a_key,
+    series_b_key, why_text)。
     """
     out = []
     for cname, c in CONCEPTS.items():
-        keys = list(c['series'])
+        keys = [k for k, s in c['series'].items() if not s.get('deprecated')]
         if len(keys) < 2:
             continue
         for a, b in combinations(keys, 2):
@@ -255,12 +316,15 @@ def to_concepts_view(query: str = None) -> list:
     每个概念节点：{ concept, display, unit, series: [{key, source, field, window,
     window_days, denominator, note}] }。
     query 在 concept/display/source/field 子串上匹配；任一 series 命中即保留整个概念。
+    不含 META_FIELDS / DEPRECATED。
     """
     q = (query or '').strip().lower()
     out = []
     for cname, c in CONCEPTS.items():
         series_out = []
         for skey, s in c['series'].items():
+            if s.get('deprecated'):
+                continue
             series_out.append({'key': skey, 'source': s['source'], 'field': s['field'],
                                'window': s['window'], 'window_days': s['window_days'],
                                'denominator': s['denominator'], 'note': s['note']})
@@ -275,19 +339,28 @@ def to_concepts_view(query: str = None) -> list:
 
 
 def calibration_note() -> str:
-    """周报文首口径说明（由 CONCEPTS 生成）。"""
-    lines = ['> **口径说明（由 mpdt/metrics.py 概念树生成；同概念多 series 窗口/分母不同，数值不可直接比）**']
-    for src in SOURCES:
-        # 按源列概念，提示该源在本周报中的全部 series
-        rows = [(c['display'], skey, s) for cname, c in CONCEPTS.items()
-                for skey, s in c['series'].items() if s['source'] == src]
-        if not rows:
+    """周报文首口径说明（由 CONCEPTS 生成）。
+
+    按概念列：一行一个概念，含该概念下各 series 一句话口径。
+    「同概念多 series 不可直接比」统一在节首提一次，概念行不重复。
+    """
+    multi_series_count = sum(1 for c in CONCEPTS.values()
+                              if sum(1 for s in c['series'].values() if not s.get('deprecated')) >= 2)
+    lines = ['> **口径说明（按概念分组，由 mpdt/metrics.py 概念树生成）**']
+    if multi_series_count:
+        lines.append('> 同概念多 series 的对照见文末「跨 series 对照」节，'
+                     '窗口/分母不同时**数值不可直接比**。')
+    for cname, c in CONCEPTS.items():
+        parts = []
+        for skey, s in c['series'].items():
+            if s.get('deprecated'):
+                continue
+            parts.append('`%s`=「%s」·%d天' % (skey, s['field'], s['window_days']))
+        if not parts:
             continue
-        win = rows[0][2]['window']
-        items = '；'.join('%s/%s=%s（分母：%s）' % (disp, skey, s['field'], s['denominator'])
-                          for disp, skey, s in rows)
-        lines.append('> - **%s**（%s，%s）：%s' % (src, SOURCE_DESC[src], win, items))
-    lines.append('> 跨源/跨 series 比较前先对齐窗口与分母；同概念多 series 配对见「跨 series 对照」节。')
+        lines.append('> - **%s**（%s）：%s' % (c['display'], c['unit'], '；'.join(parts)))
+    lines.append('> 元数据字段（refdate / publish_date / window_days / total_read_user / '
+                 'channel_breakdown）见 README 「指标口径」节；它们非指标，不参与对照。')
     return '\n'.join(lines)
 
 
@@ -302,17 +375,55 @@ def readme_section() -> str:
         out.append('| series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |')
         out.append('|---|---|---|---|---|---|---|')
         for skey, s in c['series'].items():
+            if s.get('deprecated'):
+                continue
             out.append('| `%s` | `%s` | %s | %s | %s | %s | %s |' % (
                 skey, s['field'], s['source'], s['window'], s['window_days'],
                 s['denominator'], s.get('note', '')))
         out.append('')
+    out.append('### 元数据字段（非指标：快照日 / 派生列 / 结构列）')
+    out.append('')
+    out.append('| 规范名 | 字段 | 源 | 窗口 | 类型 | 备注 |')
+    out.append('|---|---|---|---|---|---|')
+    for mname, m in META_FIELDS.items():
+        for skey, s in m['series'].items():
+            out.append('| `%s` | `%s` | %s | %s | %s | %s |' % (
+                mname, s['field'], s['source'], s['window'], m['kind'], s.get('note', '')))
+    out.append('')
+    out.append('### 旧版字段（保留登记；不参与对照 / 不出现在 metrics 视图）')
+    out.append('')
+    out.append('> 旧版字段保留在注册表里是为了让 `mpdt/metrics.py` 仍能识别上游接口'
+               '历史返回的字段（CSV 导出元数据 `*.metrics.csv` 会标出口径），'
+               '但不参与周报对照、metrics 视图与自动配对。')
+    for dname, d in DEPRECATED.items():
+        for skey, s in d['series'].items():
+            out.append('- `%s` → `%s`：%s' % (dname, d.get('replaced_by', '?'),
+                                              s.get('note', '')))
+    out.append('')
     out.append('### 自动推导的易混淆配对（同一概念多 series）')
     out.append('')
+    # 按概念聚合：C(N,2) 对折叠成一行表格
+    from collections import defaultdict
+    by_cname = defaultdict(list)
     for cname, a, b, why in auto_pairs():
-        ca, cb = CONCEPTS[cname]['series'][a], CONCEPTS[cname]['series'][b]
-        out.append('- **%s**：`%s`(%s·%s·分母「%s」) vs `%s`(%s·%s·分母「%s」) — %s' % (
-            cname, a, ca['source'], ca['window'], ca['denominator'],
-            b, cb['source'], cb['window'], cb['denominator'], why))
+        by_cname[cname].append((a, b, why))
+    out.append('| 概念 | 不可直接比的 series 配对 | 主要差异 |')
+    out.append('|---|---|---|')
+    for cname, pairs in by_cname.items():
+        display = CONCEPTS[cname]['display']
+        # 用 a vs b；a vs c；b vs c 形式压缩
+        pair_str = '；'.join('`%s` vs `%s`' % (a, b) for a, b, _ in pairs)
+        # 主要差异：所有 pair 共有的差异点（窗口或分母）合并
+        diff_set = set()
+        for a, b, _ in pairs:
+            sa, sb = CONCEPTS[cname]['series'][a], CONCEPTS[cname]['series'][b]
+            if sa['window'] != sb['window']:
+                diff_set.add('窗口')
+            if sa['denominator'] != sb['denominator']:
+                diff_set.add('分母')
+        diff_str = '、'.join(sorted(diff_set)) or '同窗口·同分母'
+        out.append('| %s（`%s`，%d 对） | %s | %s |' % (
+            display, cname, len(pairs), pair_str, diff_str))
     out.append('')
     out.append('> 本节由 `mpdt/metrics.py` CONCEPTS 自动生成（'
                '`python3 -c "from mpdt.metrics import readme_section; print(readme_section())"`）。'

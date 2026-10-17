@@ -109,14 +109,18 @@ mpdt report               # → mpdt-reports/weekly-YYYY-Www.md
 | `dc7` | `total_share` | datacube_article | 发表后 7 天窗口，T+1 出数 | 7 | - | datacube 7 天窗口·分享次数 |
 | `ad30` | `share_uv` | article_detail | 发表后 30 天窗口 | 30 | - | 单篇页 30 天窗口·分享人数 |
 
-#### 点赞(在看)（`like`，单位：次）
+#### 点赞（`like`，单位：次）
 
 | series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |
 |---|---|---|---|---|---|---|
 | `pl` | `like_num` | publish_list | 实时累计（拉取时点全量） | 0 | - | 实时累计点赞数 |
-| `pl2` | `old_like_num` | publish_list | 实时累计（拉取时点全量） | 0 | - | 旧版字段（保留），口径与 like_num 相当 |
 | `ad30` | `like_cnt` | article_detail | 发表后 30 天窗口 | 30 | - | 单篇页 30 天窗口·点赞数 |
-| `ad30z` | `zaikan_cnt` | article_detail | 发表后 30 天窗口 | 30 | - | 单篇页 30 天窗口·「在看」数（与点赞同概念不同命名） |
+
+#### 在看（`wow`，单位：次）
+
+| series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |
+|---|---|---|---|---|---|---|
+| `ad30` | `zaikan_cnt` | article_detail | 发表后 30 天窗口 | 30 | - | 单篇页 30 天窗口·「在看」数（与点赞不同概念） |
 
 #### 评论（`comment`，单位：条）
 
@@ -155,12 +159,17 @@ mpdt report               # → mpdt-reports/weekly-YYYY-Www.md
 |---|---|---|---|---|---|---|
 | `ad30` | `collection_uv` | article_detail | 发表后 30 天窗口 | 30 | - | 单篇页 30 天窗口·收藏人数 |
 
-#### 听读（`listen`，单位：人/次）
+#### 听读人数（`listen_people`，单位：人）
 
 | series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |
 |---|---|---|---|---|---|---|
-| `ad30u` | `listen_uv` | article_detail | 发表后 30 天窗口 | 30 | - | 单篇页 30 天窗口·听读人数 |
-| `ad30p` | `listen_pv` | article_detail | 发表后 30 天窗口 | 30 | - | 单篇页 30 天窗口·听读次数 |
+| `ad30` | `listen_uv` | article_detail | 发表后 30 天窗口 | 30 | - | 单篇页 30 天窗口·听读人数（与听读次数不同概念） |
+
+#### 听读次数（`listen_plays`，单位：次）
+
+| series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |
+|---|---|---|---|---|---|---|
+| `ad30` | `listen_pv` | article_detail | 发表后 30 天窗口 | 30 | - | 单篇页 30 天窗口·听读次数（与听读人数不同概念） |
 
 #### 平均阅读时长（`avg_read_time`，单位：秒）
 
@@ -174,55 +183,33 @@ mpdt report               # → mpdt-reports/weekly-YYYY-Www.md
 |---|---|---|---|---|---|---|
 | `ad30` | `praise_money` | article_detail | 发表后 30 天窗口 | 30 | - | 单篇页 30 天窗口·赞赏金额 |
 
-#### 文章口径日（`refdate`，单位：日期）
+### 元数据字段（非指标：快照日 / 派生列 / 结构列）
 
-| series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |
-|---|---|---|---|---|---|---|
-| `dc7` | `refdate` | datacube_article | 发表后 7 天窗口，T+1 出数 | 7 | - | 文章口径日（快照行 stat_date 是拉取日，两者不同） |
+| 规范名 | 字段 | 源 | 窗口 | 类型 | 备注 |
+|---|---|---|---|---|---|
+| `refdate` | `refdate` | datacube_article | 发表后 7 天窗口，T+1 出数 | snapshot | 文章口径日（快照行 stat_date 是拉取日，两者不同） |
+| `publish_date` | `publish_date` | article_detail | 发表后 30 天窗口 | snapshot | 单篇页 30 天窗口·文章发表日 |
+| `window_days` | `window_days` | article_detail | 发表后 30 天窗口 | derived | mpdt 写入的派生列（页面固定 30 天） |
+| `total_read_user` | `total_read_user` | article_detail | 发表后 30 天窗口 | derived | mpdt 派生列：「全部」渠道逐日 read_user 求和 |
+| `channel_breakdown` | `channel_breakdown` | article_detail | 发表后 30 天窗口 | structured | mpdt 派生列；同一用户多渠道重复计数 → 占比之和可 >100%（仅「全部」去重） |
 
-#### 发表日（`publish_date`，单位：日期）
+### 旧版字段（保留登记；不参与对照 / 不出现在 metrics 视图）
 
-| series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |
-|---|---|---|---|---|---|---|
-| `ad30` | `publish_date` | article_detail | 发表后 30 天窗口 | 30 | - | 单篇页 30 天窗口·文章发表日 |
-
-#### 窗口天数（`window_days`，单位：天）
-
-| series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |
-|---|---|---|---|---|---|---|
-| `ad30` | `window_days` | article_detail | 发表后 30 天窗口 | 30 | - | mpdt 写入的派生列（页面固定 30 天） |
-
-#### 全渠道阅读人数(汇总)（`total_read_user`，单位：人）
-
-| series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |
-|---|---|---|---|---|---|---|
-| `ad30` | `total_read_user` | article_detail | 发表后 30 天窗口 | 30 | - | mpdt 派生列：「全部」渠道逐日 read_user 求和 |
-
-#### 渠道构成（`channel_breakdown`，单位：JSON）
-
-| series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |
-|---|---|---|---|---|---|---|
-| `ad30` | `channel_breakdown` | article_detail | 发表后 30 天窗口 | 30 | 「全部」渠道阅读人数 | mpdt 派生列；同一用户多渠道重复计数 → 占比之和可 >100%（仅「全部」去重） |
+> 旧版字段保留在注册表里是为了让 `mpdt/metrics.py` 仍能识别上游接口历史返回的字段（CSV 导出元数据 `*.metrics.csv` 会标出口径），但不参与周报对照、metrics 视图与自动配对。
+- `old_like_num` → `like_num`：旧版字段（保留登记），口径与 like_num 相当
 
 ### 自动推导的易混淆配对（同一概念多 series）
 
-- **read_completion**：`dc7`(datacube_article·发表后 7 天窗口，T+1 出数·分母「7 天窗口内阅读人数」) vs `ad30`(article_detail·发表后 30 天窗口·分母「阅读次数(pv)」) — 同一概念「完读率」两个 series：窗口 发表后 7 天窗口，T+1 出数 vs 发表后 30 天窗口；分母「7 天窗口内阅读人数」 vs 「阅读次数(pv)」，数值不可直接比
-- **read_volume**：`pl`(publish_list·实时累计（拉取时点全量）·分母「-」) vs `dc7`(datacube_article·发表后 7 天窗口，T+1 出数·分母「-」) — 同一概念「阅读量」两个 series：窗口 实时累计（拉取时点全量） vs 发表后 7 天窗口，T+1 出数，数值不可直接比
-- **read_volume**：`pl`(publish_list·实时累计（拉取时点全量）·分母「-」) vs `ad30`(article_detail·发表后 30 天窗口·分母「「全部」渠道去重」) — 同一概念「阅读量」两个 series：窗口 实时累计（拉取时点全量） vs 发表后 30 天窗口；分母「-」 vs 「「全部」渠道去重」，数值不可直接比
-- **read_volume**：`dc7`(datacube_article·发表后 7 天窗口，T+1 出数·分母「-」) vs `ad30`(article_detail·发表后 30 天窗口·分母「「全部」渠道去重」) — 同一概念「阅读量」两个 series：窗口 发表后 7 天窗口，T+1 出数 vs 发表后 30 天窗口；分母「-」 vs 「「全部」渠道去重」，数值不可直接比
-- **share**：`pl`(publish_list·实时累计（拉取时点全量）·分母「-」) vs `dc7`(datacube_article·发表后 7 天窗口，T+1 出数·分母「-」) — 同一概念「分享」两个 series：窗口 实时累计（拉取时点全量） vs 发表后 7 天窗口，T+1 出数，数值不可直接比
-- **share**：`pl`(publish_list·实时累计（拉取时点全量）·分母「-」) vs `ad30`(article_detail·发表后 30 天窗口·分母「-」) — 同一概念「分享」两个 series：窗口 实时累计（拉取时点全量） vs 发表后 30 天窗口，数值不可直接比
-- **share**：`dc7`(datacube_article·发表后 7 天窗口，T+1 出数·分母「-」) vs `ad30`(article_detail·发表后 30 天窗口·分母「-」) — 同一概念「分享」两个 series：窗口 发表后 7 天窗口，T+1 出数 vs 发表后 30 天窗口，数值不可直接比
-- **like**：`pl`(publish_list·实时累计（拉取时点全量）·分母「-」) vs `pl2`(publish_list·实时累计（拉取时点全量）·分母「-」) — 同一概念「点赞(在看)」两个 series：同窗口·同分母（仍按概念聚合），数值不可直接比
-- **like**：`pl`(publish_list·实时累计（拉取时点全量）·分母「-」) vs `ad30`(article_detail·发表后 30 天窗口·分母「-」) — 同一概念「点赞(在看)」两个 series：窗口 实时累计（拉取时点全量） vs 发表后 30 天窗口，数值不可直接比
-- **like**：`pl`(publish_list·实时累计（拉取时点全量）·分母「-」) vs `ad30z`(article_detail·发表后 30 天窗口·分母「-」) — 同一概念「点赞(在看)」两个 series：窗口 实时累计（拉取时点全量） vs 发表后 30 天窗口，数值不可直接比
-- **like**：`pl2`(publish_list·实时累计（拉取时点全量）·分母「-」) vs `ad30`(article_detail·发表后 30 天窗口·分母「-」) — 同一概念「点赞(在看)」两个 series：窗口 实时累计（拉取时点全量） vs 发表后 30 天窗口，数值不可直接比
-- **like**：`pl2`(publish_list·实时累计（拉取时点全量）·分母「-」) vs `ad30z`(article_detail·发表后 30 天窗口·分母「-」) — 同一概念「点赞(在看)」两个 series：窗口 实时累计（拉取时点全量） vs 发表后 30 天窗口，数值不可直接比
-- **like**：`ad30`(article_detail·发表后 30 天窗口·分母「-」) vs `ad30z`(article_detail·发表后 30 天窗口·分母「-」) — 同一概念「点赞(在看)」两个 series：同窗口·同分母（仍按概念聚合），数值不可直接比
-- **comment**：`pl`(publish_list·实时累计（拉取时点全量）·分母「-」) vs `ad30`(article_detail·发表后 30 天窗口·分母「-」) — 同一概念「评论」两个 series：窗口 实时累计（拉取时点全量） vs 发表后 30 天窗口，数值不可直接比
-- **listen**：`ad30u`(article_detail·发表后 30 天窗口·分母「-」) vs `ad30p`(article_detail·发表后 30 天窗口·分母「-」) — 同一概念「听读」两个 series：同窗口·同分母（仍按概念聚合），数值不可直接比
+| 概念 | 不可直接比的 series 配对 | 主要差异 |
+|---|---|---|
+| 完读率（`read_completion`，1 对） | `dc7` vs `ad30` | 分母、窗口 |
+| 阅读量（`read_volume`，3 对） | `pl` vs `dc7`；`pl` vs `ad30`；`dc7` vs `ad30` | 分母、窗口 |
+| 分享（`share`，3 对） | `pl` vs `dc7`；`pl` vs `ad30`；`dc7` vs `ad30` | 窗口 |
+| 点赞（`like`，1 对） | `pl` vs `ad30` | 窗口 |
+| 评论（`comment`，1 对） | `pl` vs `ad30` | 窗口 |
 
 > 本节由 `mpdt/metrics.py` CONCEPTS 自动生成（`python3 -c "from mpdt.metrics import readme_section; print(readme_section())"`）。改口径请改 CONCEPTS，再运行 `mpdt metrics` 校对。
+
 ## FAQ
 
 - **fetch 提示「该日期范围无数据」**：不是错误（退出码 0）。datacube 为 T+1 口径，当天数据明天可得。

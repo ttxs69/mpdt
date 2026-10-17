@@ -175,6 +175,11 @@ class TestReport(CliBase):
         self.assertEqual(p['meta'], {})                # meta 与 data 分离：week 属 data
         self.assertTrue(p['data']['md'].endswith('weekly-2026-W42.md'))
         self.assertTrue(os.path.exists(p['data']['html']))
+        # 新增：周报应声明 concepts_compared / concepts_empty（区分有数据 vs 折叠）
+        self.assertIn('concepts_compared', p['data'])
+        self.assertIn('concepts_empty', p['data'])
+        self.assertIsInstance(p['data']['concepts_compared'], list)
+        self.assertIsInstance(p['data']['concepts_empty'], list)
 
     def test_report_week_defaults_to_current(self):
         # 不给 --week → 取上海当天所在 ISO 周（today 已 stub 到 2026-10-17 = W42）
@@ -294,6 +299,11 @@ class TestMetricsCmd(CliBase):
         self.assertIn('不可直接比', out)                  # 自动配对
         # 应有「跨 series 易混淆配对」小节
         self.assertIn('跨 series 易混淆配对', out)
+        # 新增：应有「元数据字段」「旧版字段」小节
+        self.assertIn('元数据字段', out)
+        self.assertIn('旧版字段', out)
+        self.assertIn('refdate', out)
+        self.assertIn('old_like_num', out)
 
     def test_metrics_list_json_concepts_structure(self):
         rc, out, err = self.run_cli(['--json', 'metrics'])
@@ -307,6 +317,9 @@ class TestMetricsCmd(CliBase):
         self.assertEqual(p['meta']['total_concepts'], len(p['data']['concepts']))
         self.assertEqual(p['meta']['total_series'],
                          sum(len(c['series']) for c in p['data']['concepts']))
+        # 新增：meta 应声明 total_meta / total_deprecated
+        self.assertEqual(p['meta']['total_meta'], 5)
+        self.assertEqual(p['meta']['total_deprecated'], 1)
         for c in p['data']['concepts']:
             self.assertEqual(set(c) >= {'concept', 'display', 'unit', 'series'}, True)
             for s in c['series']:
@@ -341,13 +354,60 @@ class TestMetricsCmd(CliBase):
         keys = {s['key'] for s in c['series']}
         self.assertEqual(keys, {'pl', 'dc7', 'ad30'})
 
+    def test_metrics_wow_is_its_own_concept(self):
+        # 「在看」应是独立概念 wow
+        rc, out, err = self.run_cli(['--json', 'metrics', '在看'])
+        self.assertEqual(rc, 0)
+        p = json.loads(out)
+        concepts = {c['concept'] for c in p['data']['concepts']}
+        self.assertIn('wow', concepts)
+        wow = next(c for c in p['data']['concepts'] if c['concept'] == 'wow')
+        fields = {s['field'] for s in wow['series']}
+        self.assertEqual(fields, {'zaikan_cnt'})
+
+    def test_metrics_listen_split_into_two_concepts(self):
+        # listen 拆成 listen_people / listen_plays 两个单 series 概念
+        rc, out, err = self.run_cli(['--json', 'metrics', '听读'])
+        self.assertEqual(rc, 0)
+        p = json.loads(out)
+        concepts = {c['concept']: c for c in p['data']['concepts']}
+        self.assertIn('listen_people', concepts)
+        self.assertIn('listen_plays', concepts)
+        self.assertEqual({s['field'] for s in concepts['listen_people']['series']},
+                         {'listen_uv'})
+        self.assertEqual({s['field'] for s in concepts['listen_plays']['series']},
+                         {'listen_pv'})
+
+    def test_metrics_meta_fields_excluded(self):
+        # 元数据字段（refdate / publish_date / window_days / total_read_user /
+        # channel_breakdown）不出现在 metrics 视图
+        rc, out, err = self.run_cli(['--json', 'metrics'])
+        self.assertEqual(rc, 0)
+        p = json.loads(out)
+        all_fields = {s['field'] for c in p['data']['concepts'] for s in c['series']}
+        for meta in ('refdate', 'publish_date', 'window_days',
+                     'total_read_user', 'channel_breakdown'):
+            self.assertNotIn(meta, all_fields, '%s 是元数据字段，不应出现在 metrics 视图' % meta)
+
+    def test_metrics_old_like_num_excluded_from_view(self):
+        # 旧版字段不在 metrics 视图里
+        rc, out, err = self.run_cli(['--json', 'metrics'])
+        p = json.loads(out)
+        all_fields = {s['field'] for c in p['data']['concepts'] for s in c['series']}
+        self.assertNotIn('old_like_num', all_fields)
+        # 但「点赞」仍含新字段 like_num + like_cnt
+        like = next(c for c in p['data']['concepts'] if c['concept'] == 'like')
+        self.assertEqual({s['field'] for s in like['series']}, {'like_num', 'like_cnt'})
+
     def test_auto_pairs_present_in_json(self):
         # --json 输出的 auto_pairs 至少含 完读率 + 阅读量 + 评论 等多 series 概念
         rc, out, err = self.run_cli(['--json', 'metrics'])
         p = json.loads(out)
         pair_concepts = {ap['concept'] for ap in p['data']['auto_pairs']}
-        for c in ('read_completion', 'read_volume', 'comment', 'like', 'listen', 'share'):
+        for c in ('read_completion', 'read_volume', 'comment', 'like', 'share'):
             self.assertIn(c, pair_concepts, 'auto_pairs 应自动推导概念 %s' % c)
+        # listen 已拆走，不再作为多 series 概念出现在 auto_pairs
+        self.assertNotIn('listen', pair_concepts)
 
 
 class TestExitCodes(CliBase):

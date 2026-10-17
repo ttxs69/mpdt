@@ -21,6 +21,25 @@ QUERY_JS = """
 })()"""
 
 
+# 数值字段归一化：上游把所有值序列化为字符串（"'0.1667'"），入库前统一转数值；
+# refdate 等日期字段保持字符串。未列出字段原样保留。
+_NUM_FIELDS = ('finish_read_rate', 'read_rate', 'total_pv', 'total_read_finish',
+               'total_share', 'send_succ')
+
+
+def _coerce_row(row: dict) -> dict:
+    out = dict(row)
+    for k in _NUM_FIELDS:
+        v = out.get(k)
+        if isinstance(v, str):
+            t = v.strip().strip("'")
+            try:
+                out[k] = int(t) if t.isdigit() else float(t)
+            except ValueError:
+                pass     # 非数值字符串原样保留，由上游异常路径兜底
+    return out
+
+
 def parse_tmpl17(raw: str) -> list:
     try:
         d = json.loads(raw)
@@ -31,7 +50,7 @@ def parse_tmpl17(raw: str) -> list:
     rows = d.get('data') or []
     if rows and 'finish_read_rate' not in rows[0]:
         raise UpstreamError('datacube 行结构变更（finish_read_rate 缺失）: ' + raw[:200])
-    return rows
+    return [_coerce_row(r) for r in rows]
 
 
 def fetch(session, begin: str, end: str, size=40) -> list:

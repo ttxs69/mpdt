@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""mpdt CLI（FR1/FR3/FR4/FR5/FR6）。子命令：init / fetch / report / export / metrics。
-退出码：0 成功（含空数据）｜2 配置｜3 凭据｜4 上游异常。"""
+"""mpdt CLI（FR1/FR3/FR4/FR5/FR6）。子命令：init / fetch / detail / report / export / metrics / doctor / status。
+退出码：0 成功（含空数据）｜2 配置｜3 凭据｜4 上游异常｜130 用户中断。"""
 import argparse
 import datetime as dt
 import json
+import os
+import sqlite3
+import stat as stat_mod
 import sys
+import urllib.error
+import urllib.request
 
-from . import config, store, report, metrics as metrics_mod
+from . import __version__, config, store, report, metrics as metrics_mod
 from .errors import MpdtError, UpstreamError
 
 
@@ -27,6 +32,10 @@ class _R:
         """过程输出（进度条性质）。--json 时一律不出（污染管道）；非 TTY 且未强制 → 静默。"""
         if not self.quiet and not JSON_FLAG[0]:
             print(msg)
+
+    def progress(self, i, n, msg):
+        """进度行：[第 N/总] msg（TTY 人读；--json/管道静默）。"""
+        self.say(f'  [{i}/{n}] {msg}')
 
     def out(self, msg, **meta):
         """结果输出（人读版）。--json 时不出，改为 JSON。meta 同步进 self.meta。"""
@@ -50,6 +59,9 @@ class _R:
 
 JSON_FLAG = [False]   # main() 解析后置位；模块级因 argparse 在 fn 内之后执行
 CMD_NAME = ['']
+
+# 快照数据源（与 store.SCHEMA 注释、metrics.SRC_* 一致）：export --source 合法值
+SOURCES = ['publish_list', 'datacube_article', 'article_detail']
 
 
 def cmd_init(args):
@@ -84,15 +96,19 @@ def cmd_fetch(args):
         end = dt.date.fromisoformat(args.to_date)
     stat_date = today.isoformat()               # 快照行=拉取时点，refdate 才是文章口径日
     n_total = 0
+    r.say(f'拉取发表列表（count={args.count}）…')
     pl = publish_list.fetch(s, count=args.count)
-    for a in pl['articles']:
+    for i, a in enumerate(pl['articles'], 1):
+        r.progress(i, len(pl['articles']), f'入库 {a["title"][:24]}')
         store.upsert(con, 'publish_list', stat_date, a['appmsgid'], a['itemidx'],
                      a['title'], {k: a[k] for k in
                                   ('read_num', 'share_num', 'like_num', 'old_like_num', 'comment_num')})
     n_total += len(pl['articles'])
     store.log_run(con, 'fetch:publish_list', True, f"{len(pl['articles'])} articles")
+    r.say(f'拉取 datacube（{begin} ~ {end}，T+1 口径）…')
     dc = datacube.fetch(s, begin.strftime('%Y%m%d'), end.strftime('%Y%m%d'))
-    for r2 in dc:
+    for i, r2 in enumerate(dc, 1):
+        r.progress(i, len(dc), f'入库 {r2.get("title", "")[:24]}')
         store.upsert(con, 'datacube_article', stat_date, r2.get('appmsgid'), r2.get('itemidx', 1),
                      r2.get('title', ''), {k: r2.get(k) for k in
                      ('refdate', 'finish_read_rate', 'read_rate', 'total_pv',
@@ -152,7 +168,9 @@ def cmd_detail(args):
         r.say(f'最近 {days} 天发表记录命中 {len(targets)} 篇，开始抓单篇渠道页（≥1s/篇）…')
     ok, fail = 0, 0
     ok_items = []
-    for mid, idx, pub in targets:
+    n_targets = len(targets)
+    for t_i, (mid, idx, pub) in enumerate(targets, 1):
+        r.progress(t_i, n_targets, f'{mid}_{idx}（≥1s/篇限速）')
         try:
             d = ad_mod.fetch(s, mid, idx, pub)
         except MpdtError as e:
@@ -210,6 +228,155 @@ def cmd_report(args):
                      'concepts_compared': out.get('concepts_compared', []),
                      'concepts_empty': out.get('concepts_empty', []),
                      'week': week})
+
+
+# ---- doctor / status：一站式体检与状态查询（UX 打磨，全部只读） ----
+
+def _db_readonly_stats(db_path):
+    """以只读方式打开 db，返回 {exists, rows_by_source, latest_snapshot, db_bytes, error}。"""
+    out = {'exists': os.path.exists(db_path), 'rows_by_source': {},
+           'latest_snapshot': None, 'db_bytes': None, 'error': None}
+    if not out['exists']:
+        return out
+    out['db_bytes'] = os.path.getsize(db_path)
+    try:
+        con = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True, timeout=2)
+        try:
+            for src in ('publish_list', 'datacube_article', 'article_detail'):
+                out['rows_by_source'][src] = con.execute(
+                    'SELECT COUNT(*) FROM snapshots WHERE source=?', (src,)).fetchone()[0]
+            row = con.execute('SELECT MAX(stat_date) FROM snapshots').fetchone()
+            out['latest_snapshot'] = row[0] if row else None
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        out['error'] = str(e)
+    return out
+
+
+def cmd_doctor(args):
+    """一键体检（只读）：配置 / 权限 / Chrome CDP / db / 快照新鲜度逐项检查。
+
+    人读输出 ✓/✗/⚠ 清单；--json 输出同结构 data；始终 exit 0（诊断结果不是命令成败）。
+    """
+    r = RES[0]
+    items = []
+
+    def add(name, status, detail, data=None):
+        items.append({'name': name, 'status': status, 'detail': detail,
+                      **(data or {})})
+
+    # ① 配置文件存在
+    cfg_exists = os.path.exists(config.CONFIG_PATH)
+    add('配置文件', 'ok' if cfg_exists else 'fail',
+        config.CONFIG_PATH if cfg_exists else f'未找到 {config.CONFIG_PATH} → 运行 mpdt init')
+
+    # ② 配置可解析（存在时）
+    cfg = None
+    if cfg_exists:
+        try:
+            cfg = config.load()
+            add('配置解析', 'ok', 'JSON 可读，默认项已合并')
+        except Exception as e:
+            add('配置解析', 'fail', f'损坏（{e}）→ 删除后重跑 mpdt init')
+
+    # ③ 配置权限 600
+    if cfg_exists:
+        mode = stat_mod.S_IMODE(os.stat(config.CONFIG_PATH).st_mode)
+        perms = oct(mode)[2:]
+        if mode == 0o600:
+            add('配置权限', 'ok', '600（仅本用户可读写）')
+        else:
+            add('配置权限', 'warn', f'{perms}（期望 600）→ chmod 600 ' + config.CONFIG_PATH)
+
+    # ④ Chrome CDP 可达性（5s 超时，只探不发命令）
+    cdp_url = (cfg or {}).get('chrome_cdp', config.DEFAULTS['chrome_cdp'])
+    cdp_detail, mp_tab = f'{cdp_url} 不可达（先以 --remote-debugging-port=9222 启动 Chrome）', False
+    try:
+        tabs = json.load(urllib.request.urlopen(cdp_url + '/json', timeout=5))
+        mp_tab = any(t.get('type') == 'page' and 'mp.weixin' in t.get('url', '')
+                     for t in tabs if isinstance(t, dict))
+        if mp_tab:
+            cdp_detail = f'{cdp_url} 可达，且存在已登录态的 mp.weixin 标签页'
+        else:
+            cdp_detail = f'{cdp_url} 可达，但无 mp.weixin 标签页 → 在该 Chrome 里打开并登录 mp.weixin.qq.com'
+        add('Chrome CDP', 'ok' if mp_tab else 'warn', cdp_detail,
+            {'cdp_url': cdp_url, 'mp_tab': mp_tab})
+    except Exception as e:
+        add('Chrome CDP', 'fail', cdp_detail, {'cdp_url': cdp_url, 'error': str(e)[:120]})
+
+    # ⑤ token（cfg 里有则只报存在性，绝不回显）
+    has_token = bool((cfg or {}).get('token'))
+    add('token', 'ok' if has_token else 'warn',
+        '已缓存（隐藏显示，过期时 fetch 会经 CDP 自动刷新）' if has_token
+        else '未缓存（首次 fetch 会经 Chrome 自动获取，不影响使用）')
+
+    # ⑥ db 文件 / 各源行数 / 最近快照日
+    db_path = (cfg or {}).get('db_path', config.DEFAULTS['db_path'])
+    st = _db_readonly_stats(db_path)
+    if not st['exists']:
+        add('数据库文件', 'warn', f'{db_path} 尚不存在（首次 fetch 时自动创建）')
+    elif st['error']:
+        add('数据库文件', 'warn', f'{db_path} 存在但只读打开失败：{st["error"]}（可能正在被写入）')
+    else:
+        add('数据库文件', 'ok', f'{db_path}（{st["db_bytes"]} 字节）',
+            {'rows_by_source': st['rows_by_source']})
+        total_rows = sum(st['rows_by_source'].values())
+        if total_rows == 0:
+            add('快照数据', 'warn', '0 行（库为空 → 运行 mpdt fetch 建立首份快照）')
+        else:
+            latest = st['latest_snapshot']
+            days_ago = None
+            if latest:
+                try:
+                    days_ago = (today_shanghai() - dt.date.fromisoformat(latest)).days
+                except ValueError:
+                    pass
+            add('快照数据', 'ok' if days_ago is not None and days_ago <= 7 else 'warn',
+                f'共 {total_rows} 行，最近快照日 {latest}'
+                + (f'（{days_ago} 天前）' if days_ago is not None else '')
+                + ('' if days_ago is not None and days_ago <= 7 else ' → 建议运行 mpdt fetch 更新'),
+                {'latest_snapshot': latest, 'days_ago': days_ago})
+
+    # ---- 人读输出（--json 走 r.result 通道）----
+    if not JSON_FLAG[0]:
+        icon = {'ok': '✓', 'warn': '⚠', 'fail': '✗'}
+        print('mpdt 体检（只读，不改任何状态）：')
+        for it in items:
+            print(f'  {icon[it["status"]]} {it["name"]}：{it["detail"]}')
+    n_fail = sum(1 for i in items if i['status'] == 'fail')
+    n_warn = sum(1 for i in items if i['status'] == 'warn')
+    return r.result(f'体检完成：{len(items)} 项，✓ {len(items)-n_fail-n_warn} / ⚠ {n_warn} / ✗ {n_fail}',
+                    {'items': items, 'checks': len(items),
+                     'ok_count': len(items) - n_fail - n_warn,
+                     'warn_count': n_warn, 'fail_count': n_fail},
+                    all_ok=n_fail == 0)
+
+
+def cmd_status(args):
+    """本地库状态一览（只读）：db 位置 / 各源行数 / 最新快照日 / 库体积。"""
+    r = RES[0]
+    db_path = config.DEFAULTS['db_path']
+    cfg_exists = os.path.exists(config.CONFIG_PATH)
+    if cfg_exists:
+        try:
+            db_path = config.load()['db_path']
+        except Exception:
+            db_path = config.DEFAULTS['db_path']   # 解析失败→回退默认路径并照常汇报
+    st = _db_readonly_stats(db_path)
+    db_bytes = st['db_bytes'] or 0
+    size_h = f'{db_bytes/1024:.1f} KB' if db_bytes < 1024 * 1024 else f'{db_bytes/1048576:.2f} MB'
+    data = {'db_path': db_path, 'db_exists': st['exists'], 'db_bytes': db_bytes,
+            'db_size_human': size_h, 'rows_by_source': st['rows_by_source'],
+            'latest_snapshot': st['latest_snapshot']}
+    if not JSON_FLAG[0]:
+        print(f'数据库：{db_path}' + ('' if st['exists'] else '（尚不存在，首次 fetch 时创建）'))
+        if st['exists']:
+            for src, n in st['rows_by_source'].items():
+                print(f'  {src:<18} {n} 行')
+            print(f'  最新快照日：{st["latest_snapshot"] or "（空库）"}')
+            print(f'  库体积：{size_h}（{db_bytes} 字节）')
+    return r.result(f'库状态：{db_path}（{sum(st["rows_by_source"].values())} 行，{size_h}）', data)
 
 
 def cmd_metrics(args):
@@ -281,40 +448,154 @@ def cmd_export(args):
     r = RES[0]
     cfg = config.load()
     con = store.connect(cfg['db_path'])
-    n = store.export_csv(con, args.source, args.out, with_meta=not args.no_meta)
-    meta = {'out': args.out, 'rows': n, 'source': args.source}
-    msg = f'CSV 导出：{args.out}（{n} 行，source={args.source}）'
-    if not args.no_meta:
-        msg += f'（口径元数据：{args.out}.metrics.csv）'
-        meta['metrics_meta'] = args.out + '.metrics.csv'
+    if args.format == 'json':
+        n = store.export_json(con, args.source, args.out, with_meta=not args.no_meta)
+        meta = {'out': args.out, 'rows': n, 'source': args.source, 'format': 'json'}
+        msg = f'JSON 导出：{args.out}（{n} 行，source={args.source}）'
+        if not args.no_meta:
+            msg += '（口径元数据：内嵌 metrics_meta）'
+            meta['metrics_meta'] = 'embedded'
+    else:
+        n = store.export_csv(con, args.source, args.out, with_meta=not args.no_meta)
+        meta = {'out': args.out, 'rows': n, 'source': args.source, 'format': 'csv'}
+        msg = f'CSV 导出：{args.out}（{n} 行，source={args.source}）'
+        if not args.no_meta:
+            msg += f'（口径元数据：{args.out}.metrics.csv）'
+            meta['metrics_meta'] = args.out + '.metrics.csv'
     return r.result(msg, meta)
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog='mpdt', description='公众号运营数据自动化工具（本地）',
-                                epilog='退出码：0 成功（含空数据）｜2 配置问题｜3 凭据/登录态问题｜4 上游接口异常｜130 用户中断(Ctrl-C，进度不保证，已入库部分已 commit)')
+    p = argparse.ArgumentParser(
+        prog='mpdt',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description='公众号运营数据自动化工具（本地）：复用本机已登录 Chrome 的登录态，\n'
+                    '把发表列表 / datacube 文章分析 / 单篇渠道页快照进本地 SQLite，\n'
+                    '再生成周报与导出。数据只存本机。',
+        epilog='三步快速上手：\n'
+               '  1. mpdt init                  生成本机配置 ~/.mpdt/config.json\n'
+               '  2. mpdt fetch                 快照数据进本地 SQLite（需 Chrome 已启动并登录 mp.weixin.qq.com）\n'
+               '  3. mpdt report                生成本周周报（Markdown + HTML）\n'
+               '\n'
+               '常用补充命令：\n'
+               '  mpdt doctor                   一键体检（只读：配置/Chrome/数据库逐项检查）\n'
+               '  mpdt status                   查看库位置 / 各源行数 / 最新快照日 / 库体积\n'
+               '  mpdt metrics [关键字]         查指标口径（"这个字段是什么口径"）\n'
+               '\n'
+               '退出码：\n'
+               '  0    成功（含空数据——当天数据 T+1 后才可得，空结果不是错误）\n'
+               '  2    配置问题（未 init / 配置损坏）→ 下一步：mpdt init\n'
+               '  3    凭据问题（token 刷新失败）→ 下一步：Chrome 里登录 mp.weixin.qq.com 后重试\n'
+               '  4    上游接口异常（微信端点改版）→ 反馈原始返回片段给开发者\n'
+               '  130  用户中断 Ctrl-C（已入库部分安全，幂等重跑）')
     p.add_argument('--json', action='store_true',
                    help='机器可读 JSON 输出（stdout 仅一行 JSON；过程输出与提示全静默）')
-    sub = p.add_subparsers(dest='cmd', required=True)
-    pi = sub.add_parser('init'); pi.add_argument('--db', default=None); pi.set_defaults(fn=cmd_init)
-    pf = sub.add_parser('fetch')
-    pf.add_argument('--from', dest='from_date', help='YYYY-MM-DD')
-    pf.add_argument('--to', dest='to_date', help='YYYY-MM-DD')
-    pf.add_argument('--backfill', type=int, default=1, help='回填最近 N 天（默认1=仅昨天）')
-    pf.add_argument('--count', type=int, default=20, help='发布列表条数')
+    p.add_argument('--version', action='version', version='%(prog)s ' + __version__,
+                   help='显示版本号并退出')
+
+    sub = p.add_subparsers(dest='cmd', required=True,
+                           metavar='<子命令>',
+                           description='子命令（详细用法：mpdt <子命令> --help）：')
+
+    # ---- init ----
+    pi = sub.add_parser(
+        'init',
+        help='初始化本机配置（~/.mpdt/config.json，权限 600）',
+        description='初始化本机配置：生成 ~/.mpdt/config.json（权限 600，凭据只存本机）。\n'
+                    '幂等——已存在时不覆盖，仅提示。这是首次使用的第一步。')
+    pi.add_argument('--db', default=None, metavar='PATH',
+                    help='数据库文件路径（默认 ~/.mpdt/mpdt.sqlite3，父目录自动创建）')
+    pi.set_defaults(fn=cmd_init)
+
+    # ---- fetch ----
+    pf = sub.add_parser(
+        'fetch', help='快照发表列表 + datacube 文章数据进本地库',
+        description='快照今日数据进本地 SQLite：①发表列表（实时累计指标）；\n'
+                    '②datacube 文章级分析（发表后 7 天窗口，T+1 出数——当天数据要明天才有）。\n'
+                    '幂等：同一天重跑覆盖同键行。需要本机 Chrome 以调试端口启动且已登录。\n'
+                    '新用户前置：mpdt init；拿不准环境就先跑 mpdt doctor。')
+    pf.add_argument('--from', dest='from_date', metavar='YYYY-MM-DD',
+                    help='datacube 起始日（默认=回填窗口起点；与 --backfill 二选一）')
+    pf.add_argument('--to', dest='to_date', metavar='YYYY-MM-DD',
+                    help='datacube 截止日（默认=昨天，T+1：当天数据未出）')
+    pf.add_argument('--backfill', type=int, default=1, metavar='N',
+                    help='回填最近 N 天（默认 1=仅昨天；给 --from 时忽略）')
+    pf.add_argument('--count', type=int, default=20, metavar='N',
+                    help='发表列表拉取条数（默认 20）')
     pf.set_defaults(fn=cmd_fetch)
-    pr = sub.add_parser('report'); pr.add_argument('--week', help='ISO 周，如 2026-W42'); pr.add_argument('--out', default=None); pr.set_defaults(fn=cmd_report)
-    pd = sub.add_parser('detail', help='单篇渠道页（完读率+渠道构成）')
-    pd.add_argument('--msgid', help='单个 appmsgid（需配 --publish-date）')
-    pd.add_argument('--item-idx', type=int, default=1)
-    pd.add_argument('--publish-date', help='YYYY-MM-DD（与 --msgid 配对）')
-    pd.add_argument('--recent', type=int, default=0, help='按发表记录抓最近 N 天发布的文章')
-    pd.add_argument('--count', type=int, default=20, help='发表记录拉取条数（--recent 时用）')
+
+    # ---- detail ----
+    pd = sub.add_parser(
+        'detail', help='抓单篇渠道页（完读率 + 渠道来源构成，30 天窗口）',
+        description='抓单篇渠道分析页入库（article_detail 源）：阅读人数/完读率/时长 +\n'
+                    '逐渠道人数构成（推荐/搜一搜/公众号消息…），发表后 30 天窗口口径。\n'
+                    '两种目标：指定单篇（--msgid + --publish-date），或按发表记录批量（--recent N）。')
+    pd.add_argument('--msgid', metavar='ID',
+                    help='单个 appmsgid（必须同时给 --publish-date）')
+    pd.add_argument('--item-idx', type=int, default=1, metavar='N',
+                    help='多图文中的第 N 篇（默认 1；与 --msgid 配对）')
+    pd.add_argument('--publish-date', metavar='YYYY-MM-DD',
+                    help='该篇发表日期（与 --msgid 配对，渠道页接口必填）')
+    pd.add_argument('--recent', type=int, default=0, metavar='N',
+                    help='抓最近 N 天发表的文章（0=不用此模式；走发表记录自动定位）')
+    pd.add_argument('--count', type=int, default=20, metavar='N',
+                    help='发表记录拉取条数（--recent 模式下定位目标用，默认 20）')
     pd.set_defaults(fn=cmd_detail)
-    pe = sub.add_parser('export'); pe.add_argument('--source', default='datacube_article'); pe.add_argument('--out', default='mpdt-export.csv'); pe.add_argument('--no-meta', action='store_true', help='不写口径元数据伴随文件 *.metrics.csv'); pe.set_defaults(fn=cmd_export)
-    pm = sub.add_parser('metrics', help='列出全部指标及口径（可查『这个字段是什么口径』）')
-    pm.add_argument('query', nargs='?', default=None, help='按 规范名/源字段/源名 子串过滤')
+
+    # ---- report ----
+    pr = sub.add_parser(
+        'report', help='生成周报（Markdown + HTML，含跨源口径对照）',
+        description='生成本周（或指定周）数据周报：完读率 Top10 + 跨 series 宽表对照 +\n'
+                    '单篇渠道构成。文首自动带口径说明；HTML 带目录导航锚点。\n'
+                    '前置：先跑过 mpdt fetch（空周也能出报告，只是标注无数据）。')
+    pr.add_argument('--week', metavar='ISO周',
+                    help='ISO 周号，如 2026-W42（默认=本周）')
+    pr.add_argument('--out', metavar='DIR',
+                    help='输出目录（默认 ./mpdt-reports）')
+    pr.set_defaults(fn=cmd_report)
+
+    # ---- export ----
+    pe = sub.add_parser(
+        'export', help='导出快照为 CSV / JSON（附口径元数据）',
+        description='把某个数据源的快照导出为 CSV 或 JSON。默认附带口径元数据\n'
+                    '（CSV：*.metrics.csv 伴随文件；JSON：内嵌 metrics_meta），\n'
+                    '防止混源导出后分不清列口径。空源导出 0 行也算成功。')
+    pe.add_argument('--source', default='datacube_article', metavar='SRC',
+                    choices=SOURCES,
+                    help='数据源：{%(choices)s}（默认 %(default)s；先跑 mpdt status 看各源行数）')
+    pe.add_argument('--out', default='mpdt-export.csv', metavar='PATH',
+                    help='输出文件路径（默认 %(default)s）')
+    pe.add_argument('--format', choices=['csv', 'json'], default='csv',
+                    help='导出格式（默认 %(default)s；json=结构化载荷，口径元数据内嵌）')
+    pe.add_argument('--no-meta', action='store_true',
+                    help='不写口径元数据（CSV 伴随文件 / JSON 内嵌块）')
+    pe.set_defaults(fn=cmd_export)
+
+    # ---- metrics ----
+    pm = sub.add_parser(
+        'metrics', help='列出全部指标及口径（查"这个字段是什么口径"）',
+        description='指标口径查询：按概念分组列出全部 series（源/字段/窗口/分母），\n'
+                    '含元数据字段、旧版字段与易混淆配对。口径唯一事实源=metrics.py。')
+    pm.add_argument('query', nargs='?', default=None, metavar='关键字',
+                    help='按 规范名/源字段/源名 子串过滤（如 完读率 / read_num）')
     pm.set_defaults(fn=cmd_metrics)
+
+    # ---- doctor ----
+    po = sub.add_parser(
+        'doctor', help='一键体检：配置/Chrome/数据库逐项检查（只读）',
+        description='一键体检（全部只读，不改任何状态）：配置文件存在与可解析、权限 600、\n'
+                    'Chrome CDP 可达性、token 缓存状态、数据库文件与各源行数、最近快照新鲜度。\n'
+                    '人读输出 ✓/✗/⚠ 清单（✗/⚠ 均附「下一步怎么办」）；--json 输出同结构 data。\n'
+                    '诊断本身永远 exit 0——体检结果不是命令成败。')
+    po.set_defaults(fn=cmd_doctor)
+
+    # ---- status ----
+    ps = sub.add_parser(
+        'status', help='本地库状态：位置/各源行数/最新快照日/库体积（只读）',
+        description='本地库状态一览（只读）：数据库文件在哪、三个源各多少行、\n'
+                    '最新快照日、库体积。配置缺失时也能跑（回退默认路径）。')
+    ps.set_defaults(fn=cmd_status)
+
     pre = p.parse_known_args(argv)[0] if argv is not None else None
     args = p.parse_args(argv)
     # 全局态：--json 与 TTY 检测（非 TTY=管道/重定向/cron，过程输出默认静默，结果仍打印）

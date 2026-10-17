@@ -205,7 +205,7 @@ class TestExport(CliBase):
         p = json.loads(out)
         self.assertEqual(p['cmd'], 'export')
         self.assertEqual(p['data'], {'out': csv_path, 'rows': 1, 'source': 'datacube_article',
-                                     'metrics_meta': csv_path + '.metrics.csv'})
+                                     'format': 'csv', 'metrics_meta': csv_path + '.metrics.csv'})
         self.assertTrue(os.path.exists(csv_path + '.metrics.csv'))
 
     def test_export_no_meta_flag_skips_sidecar(self):
@@ -213,14 +213,56 @@ class TestExport(CliBase):
         csv_path = os.path.join(self._tmp.name, 'x3.csv')
         rc, out, err = self.run_cli(['--json', 'export', '--out', csv_path, '--no-meta'])
         p = json.loads(out)
-        self.assertEqual(p['data'], {'out': csv_path, 'rows': 1, 'source': 'datacube_article'})
+        self.assertEqual(p['data'], {'out': csv_path, 'rows': 1, 'source': 'datacube_article',
+                                     'format': 'csv'})
         self.assertFalse(os.path.exists(csv_path + '.metrics.csv'))
 
     def test_export_empty_source_still_exit0(self):
+        # 合法但无数据的源 → 0 行导出仍 exit 0（空数据=成功语义不变）
         csv_path = os.path.join(self._tmp.name, 'e.csv')
-        rc, out, err = self.run_cli(['--json', 'export', '--source', 'nothing', '--out', csv_path])
+        rc, out, err = self.run_cli(['--json', 'export', '--source', 'article_detail',
+                                     '--out', csv_path])
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out)['data']['rows'], 0)
+
+    def test_export_invalid_source_rejected_with_choices_hint(self):
+        # UX：--source 非法值 → argparse choices 提示合法值（SystemExit 2）
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cli(['--json', 'export', '--source', 'nothing'])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_export_format_json_writes_payload(self):
+        self.seed_db()
+        out = os.path.join(self._tmp.name, 'x.json')
+        rc, out_s, err = self.run_cli(['--json', 'export', '--out', out, '--format', 'json'])
+        self.assertEqual(rc, 0)
+        p = json.loads(out_s)
+        self.assertEqual(p['data'], {'out': out, 'rows': 1, 'source': 'datacube_article',
+                                     'format': 'json', 'metrics_meta': 'embedded'})
+        payload = json.loads(open(out, encoding='utf-8').read())
+        self.assertEqual(payload['row_count'], 1)
+        self.assertIn('metrics_meta', payload)
+        self.assertEqual(payload['columns'][0], 'stat_date')
+
+    def test_export_format_json_no_meta(self):
+        self.seed_db()
+        out = os.path.join(self._tmp.name, 'nm.json')
+        rc, out_s, err = self.run_cli(['--json', 'export', '--out', out, '--format', 'json',
+                                       '--no-meta'])
+        self.assertEqual(rc, 0)
+        self.assertNotIn('metrics_meta', json.loads(out_s)['data'])
+        payload = json.loads(open(out, encoding='utf-8').read())
+        self.assertNotIn('metrics_meta', payload)
+
+    def test_export_format_csv_default_unchanged(self):
+        csv_path = os.path.join(self._tmp.name, 'd.csv')
+        rc, out, err = self.run_cli(['--json', 'export', '--out', csv_path])
+        self.assertEqual(json.loads(out)['data']['format'], 'csv')
+
+    def test_export_invalid_format_rejected(self):
+        with self.assertRaises(SystemExit) as cm:            # argparse choices 拒绝 → exit 2
+            self.run_cli(['--json', 'export', '--format', 'xml'])
+        self.assertEqual(cm.exception.code, 2)
 
 
 class TestFetchStubbed(CliBase):
@@ -408,6 +450,238 @@ class TestMetricsCmd(CliBase):
             self.assertIn(c, pair_concepts, 'auto_pairs 应自动推导概念 %s' % c)
         # listen 已拆走，不再作为多 series 概念出现在 auto_pairs
         self.assertNotIn('listen', pair_concepts)
+
+
+class TestVersion(CliBase):
+    """--version：读 __init__.__version__，SystemExit(0)。"""
+
+    def test_version_prints_version_exits0(self):
+        from mpdt import __version__
+        buf_out, buf_err = io.StringIO(), io.StringIO()
+        sys.stdout, sys.stderr = buf_out, buf_err
+        try:
+            with self.assertRaises(SystemExit) as cm:
+                cli.main(['--version'])
+            self.assertEqual(cm.exception.code, 0)
+        finally:
+            sys.stdout, sys.stderr = self._stdout, self._stderr
+        self.assertIn(__version__, buf_out.getvalue())
+
+    def test_version_json_ignored_clean(self):
+        # --version 优先于 --json：直接打版本号退出（不产生 JSON——版本查询无 data 语义）
+        from mpdt import __version__
+        buf_out = io.StringIO()
+        sys.stdout = buf_out
+        try:
+            with self.assertRaises(SystemExit) as cm:
+                cli.main(['--json', '--version'])
+            self.assertEqual(cm.exception.code, 0)
+        finally:
+            sys.stdout = self._stdout
+        self.assertEqual(buf_out.getvalue().strip(), 'mpdt ' + __version__)
+
+
+class TestHelp(CliBase):
+    """help 统一排版：全部子命令有中文 description；每参数有中文 help。"""
+
+    def _get_help(self, argv):
+        buf_out = io.StringIO()
+        sys.stdout = buf_out
+        try:
+            with self.assertRaises(SystemExit) as cm:
+                cli.main(argv)
+            self.assertEqual(cm.exception.code, 0)
+        finally:
+            sys.stdout = self._stdout
+        return buf_out.getvalue()
+
+    def test_top_help_epilog_quickstart_and_exit_codes(self):
+        h = self._get_help(['--help'])
+        self.assertIn('三步快速上手', h)
+        self.assertIn('mpdt init', h)
+        self.assertIn('mpdt fetch', h)
+        self.assertIn('mpdt report', h)
+        self.assertIn('退出码', h)
+        self.assertIn('130', h)
+
+    def test_all_subcommands_have_chinese_description(self):
+        for name in ('init', 'fetch', 'detail', 'report', 'export', 'metrics',
+                     'doctor', 'status'):
+            h = self._get_help([name, '--help'])
+            self.assertIn('usage:', h, name)   # C locale 下 argparse 头；排版统一
+            # description 含中文且不止一行参数表（有实质说明）
+            self.assertRegex(h, r'[\u4e00-\u9fff]')
+            self.assertNotIn('%(', h)   # 未展开的 %(default)s 类占位符是排版事故
+
+    def test_every_argument_has_help_text(self):
+        # 每个带参数的子命令：非空 help 逐参数存在（init/fetch/detail/report/export/metrics）
+        for name in ('init', 'fetch', 'detail', 'report', 'export', 'metrics'):
+            h = self._get_help([name, '--help'])
+            self.assertIn('--', h)
+            # 粗机制断言：help 文本不应只有参数名裸列（中文帮助词大量存在）
+            self.assertRegex(h, r'[\u4e00-\u9fff]{2,}')
+
+    def test_top_help_lists_all_subcommands(self):
+        h = self._get_help(['--help'])
+        for name in ('init', 'fetch', 'detail', 'report', 'export', 'metrics',
+                     'doctor', 'status'):
+            self.assertIn(name, h)
+
+
+class TestDoctor(CliBase):
+    """doctor：一站式体检（只读），✓/✗/⚠ 清单 + --json，exit 0。"""
+
+    def test_doctor_no_config_reports_fail_item_and_next_step(self):
+        os.remove(config.CONFIG_PATH)
+        rc, out, err = self.run_cli(['doctor'])
+        self.assertEqual(rc, 0)                    # 诊断≠命令失败
+        self.assertIn('✗', out)
+        self.assertIn('mpdt init', out)            # ✗ 项带下一步指引
+        self.assertIn('体检完成', out)
+
+    def test_doctor_json_structure_with_config(self):
+        rc, out, err = self.run_cli(['--json', 'doctor'])
+        self.assertEqual(rc, 0)
+        p = json.loads(out)
+        self.assertEqual(p['ok'], True)
+        self.assertEqual(p['cmd'], 'doctor')
+        self.assertEqual(set(p), {'ok', 'cmd', 'data', 'meta'})
+        items = p['data']['items']
+        names = {i['name'] for i in items}
+        self.assertTrue({'配置文件', '配置解析', '配置权限', 'Chrome CDP',
+                         'token', '数据库文件'} <= names)
+        for i in items:
+            self.assertIn(i['status'], ('ok', 'warn', 'fail'))
+        self.assertEqual(p['data']['checks'], len(items))
+        self.assertEqual(p['data']['ok_count'] + p['data']['warn_count']
+                         + p['data']['fail_count'], len(items))
+
+    def test_doctor_check_config_perm_600(self):
+        # setUp 的 config.save 已 chmod 600 → ok 项
+        rc, out, err = self.run_cli(['doctor'])
+        self.assertIn('配置权限', out)
+        self.assertIn('600', out)
+        self.assertNotIn('✗ 配置权限', out)
+        # 人读版有图标行
+        self.assertRegex(out, r'[✓⚠✗]')
+
+    def test_doctor_flags_world_readable_config(self):
+        os.chmod(config.CONFIG_PATH, 0o644)
+        rc, out, err = self.run_cli(['doctor'])
+        self.assertEqual(rc, 0)
+        self.assertIn('⚠ 配置权限', out)
+        self.assertIn('chmod 600', out)            # 下一步指引
+
+    def test_doctor_cdp_check_environment_agnostic(self):
+        # CDP 检查结果随环境（本机是否跑了 Chrome 调试实例）而不同；
+        # 机制断言：该项一定出现，且带 可达/不可达 结论之一。
+        rc, out, err = self.run_cli(['doctor'])
+        self.assertEqual(rc, 0)
+        self.assertIn('Chrome CDP', out)
+        self.assertTrue('可达' in out or '不可达' in out)
+        # 人读输出三种状态图标格式统一
+        for line in out.splitlines():
+            if line.startswith('  ') and ('：' in line):
+                self.assertRegex(line, r'[✓⚠✗]')
+
+    def test_doctor_reports_db_rows_and_latest_snapshot(self):
+        self.seed_db()
+        rc, out, err = self.run_cli(['--json', 'doctor'])
+        p = json.loads(out)
+        db_item = next(i for i in p['data']['items'] if i['name'] == '数据库文件')
+        self.assertEqual(db_item['rows_by_source']['datacube_article'], 1)
+        snap = next(i for i in p['data']['items'] if i['name'] == '快照数据')
+        self.assertEqual(snap['latest_snapshot'], '2026-10-15')
+
+    def test_doctor_readonly_does_not_create_db(self):
+        # 未 fetch 过：doctor 不应顺手建库（store.connect 会建表；doctor 用只读 URI）
+        os.remove(config.CONFIG_PATH)
+        self.run_cli(['init'])
+        db = config.DEFAULTS['db_path']
+        if os.path.exists(db):
+            os.remove(db)
+        self.run_cli(['doctor'])
+        self.assertFalse(os.path.exists(db))      # 只读体检零副作用
+
+
+class TestStatus(CliBase):
+    """status：db 位置 / 各源行数 / 最新快照日 / 库体积；只读。"""
+
+    def test_status_reports_rows_paths_and_size(self):
+        self.seed_db()
+        rc, out, err = self.run_cli(['status'])
+        self.assertEqual(rc, 0)
+        self.assertIn(config.DEFAULTS['db_path'], out)
+        self.assertIn('datacube_article', out)
+        self.assertIn('1 行', out)
+        self.assertIn('2026-10-15', out)          # 最新快照日
+        self.assertIn('库体积', out)
+
+    def test_status_json_payload(self):
+        self.seed_db()
+        rc, out, err = self.run_cli(['--json', 'status'])
+        self.assertEqual(rc, 0)
+        p = json.loads(out)
+        self.assertEqual(p['cmd'], 'status')
+        self.assertEqual(p['data']['db_path'], config.DEFAULTS['db_path'])
+        self.assertEqual(p['data']['rows_by_source']['datacube_article'], 1)
+        self.assertEqual(p['data']['latest_snapshot'], '2026-10-15')
+        self.assertGreater(p['data']['db_bytes'], 0)
+
+    def test_status_no_db_no_config_still_exit0(self):
+        os.remove(config.CONFIG_PATH)
+        rc, out, err = self.run_cli(['--json', 'status'])
+        self.assertEqual(rc, 0)
+        p = json.loads(out)
+        self.assertFalse(p['data']['db_exists'])  # 库不存在→汇报而非报错
+
+
+class TestProgress(CliBase):
+    """fetch/detail TTY 进度行：[第 N/总]，非 TTY 静默、--json 不出。"""
+
+    def test_fetch_progress_shows_N_of_total(self):
+        pl = _pl_stub([self.pl_article(), self.pl_article(appmsgid='mB')])
+        dc = _dc_stub([])
+        rc, out, err = self.run_cli(['fetch'], patch_fetch=(pl, dc))
+        self.assertEqual(rc, 0)
+        self.assertIn('[1/2]', out)
+        self.assertIn('[2/2]', out)
+
+    def test_fetch_progress_silent_in_json(self):
+        pl = _pl_stub([self.pl_article()])
+        dc = _dc_stub([])
+        rc, out, err = self.run_cli(['--json', 'fetch'], patch_fetch=(pl, dc))
+        self.assertEqual(rc, 0)
+        p = json.loads(out)
+        self.assertEqual(p['data']['publish_list'], 1)
+        self.assertNotIn('[1/1]', out)            # JSON 单行纯净化
+
+
+class TestErrorHints(CliBase):
+    """报错文案带「下一步怎么办」指引（exit 2/3 尤甚）。"""
+
+    @staticmethod
+    def _pl_raising(exc):
+        pl = mock.MagicMock()
+        pl.fetch = mock.MagicMock(side_effect=exc)
+        return pl
+
+    def test_config_error_hint_mentions_doctor(self):
+        os.remove(config.CONFIG_PATH)
+        rc, out, err = self.run_cli(['fetch'])
+        self.assertEqual(rc, 2)
+        self.assertIn('退出码 2', err)
+        self.assertIn('下一步', err)
+        self.assertIn('mpdt init', err)
+        self.assertIn('mpdt doctor', err)
+
+    def test_auth_error_hint_step_by_step(self):
+        pl, dc = self._pl_raising(AuthError('登录态失效')), _dc_stub([])
+        rc, out, err = self.run_cli(['fetch'], patch_fetch=(pl, dc))
+        self.assertEqual(rc, 3)
+        self.assertIn('mp.weixin.qq.com', err)
+        self.assertIn('mpdt doctor', err)
+        self.assertIn('重新运行 mpdt fetch', err)
 
 
 class TestExitCodes(CliBase):

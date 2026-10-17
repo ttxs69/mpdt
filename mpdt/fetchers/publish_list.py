@@ -53,6 +53,11 @@ def parse_publish_list(raw: str) -> dict:
         if not isinstance(info, dict):
             continue
         ct = (info.get('publish_info') or {}).get('create_time')
+        if not (isinstance(ct, int) and ct > 0):
+            # 贴图类（type=9 群发图）publish_info 为空对象，群发时间在 sent_info.time
+            # （R70 实证：2247485215 sent_info.time=1792145145 = 2026-10-16 18:05:45+08，
+            #  与 publish-read.py 实查 create_time 一致；保持 article 侧口径=群发时刻）
+            ct = (info.get('sent_info') or {}).get('time')
         pub_date = ''
         if isinstance(ct, int) and ct > 0:
             pub_date = _dt.datetime.fromtimestamp(

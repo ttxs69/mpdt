@@ -28,6 +28,20 @@ class TestPublishList(unittest.TestCase):
         for k in ('appmsgid', 'itemidx', 'title', 'read_num', 'share_num', 'like_num'):
             self.assertIn(k, a)
 
+    def test_pic_type_gets_publish_date_from_sent_info(self):
+        # R70：贴图类 publish_info 为空对象，时间戳在 sent_info.time（群发时间）。
+        # 实证：2247485215 sent_info.time=1792145145 → 2026-10-16 18:05:45+08，
+        # 与 PIC-rea 实查 t0（publish-read.py create_time）完全一致。
+        out = parse_publish_list(self.raw)
+        by_id = {a['appmsgid']: a for a in out['articles']}
+        a = by_id.get(2247485215)
+        self.assertIsNotNone(a, 'fixture 应含贴图样本 2247485215')
+        self.assertEqual(a['publish_date'], '2026-10-16')
+        self.assertEqual(a['create_time'], 1792145145)
+        b = by_id.get(2247485156)
+        self.assertIsNotNone(b, 'fixture 应含贴图样本 2247485156')
+        self.assertEqual(b['publish_date'], '2026-10-16')
+
     def test_structure_change_raises_upstream_4(self):
         with self.assertRaises(UpstreamError):
             parse_publish_list('{"base_resp":{"ret":0},"publish_page":"not json"}')

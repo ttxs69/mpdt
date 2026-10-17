@@ -83,6 +83,54 @@ class ReportBase(unittest.TestCase):
         self._tmp.cleanup()
 
 
+class TestCrossSourceTable(ReportBase):
+    def test_pairs_matched_with_window_and_delta(self):
+        hdr, rows, note = report.cross_source_table(self.con)
+        # fixture：mA 与 mB 两篇在两源都有 → 2 行
+        self.assertEqual(len(rows), 2)
+        self.assertIn('appmsgid_itemidx', hdr)
+        by_key = {r[1]: r for r in rows}
+        # mA：dc 0.10 vs ad 0.25 → -15.0 百分点
+        self.assertEqual(by_key['mA_1'][2], '10.0%')
+        self.assertEqual(by_key['mA_1'][3], '25.0%')
+        self.assertEqual(by_key['mA_1'][4], '-15.0')
+        self.assertIn('7 天窗口', by_key['mA_1'][5])
+        self.assertIn('30 天窗口', by_key['mA_1'][5])
+        # mB：dc 0.40 vs ad 0.31 → +9.0
+        self.assertEqual(by_key['mB_1'][4], '+9.0')
+
+    def test_note_warns_not_comparable(self):
+        _, _, note = report.cross_source_table(self.con)
+        self.assertIn('不可直接比', note)
+        self.assertIn('finish_read_rate', note)
+        self.assertIn('finished_read_pv_ratio', note)
+        self.assertIn('7 天窗口', note)
+        self.assertIn('30 天窗口', note)
+
+    def test_no_overlap_gives_empty_rows(self):
+        con2 = store.connect(os.path.join(self._tmp.name, 'mem.sqlite3'))
+        store.upsert(con2, 'datacube_article', '2026-10-15', 'mA', 1, 'a',
+                     {'finish_read_rate': 0.1})
+        store.upsert(con2, 'article_detail', '2026-10-16', 'mZ', 1, 'z',
+                     {'finished_read_pv_ratio': 0.2})
+        hdr, rows, note = report.cross_source_table(con2)
+        self.assertEqual(rows, [])
+        con2.close()
+
+    def test_latest_snapshot_wins_per_key(self):
+        # mA 在 article_detail 有 10-16 与 10-17 两个快照 → 取 10-17（0.25）
+        hdr, rows, note = report.cross_source_table(self.con)
+        by_key = {r[1]: r for r in rows}
+        self.assertEqual(by_key['mA_1'][3], '25.0%')
+
+    def test_missing_ratio_value_skipped(self):
+        store.upsert(self.con, 'article_detail', '2026-10-17', 'mC', 1, '文章mC',
+                     {'read_uv': 10})        # 无 finished_read_pv_ratio
+        self.con.commit()
+        hdr, rows, note = report.cross_source_table(self.con)
+        self.assertEqual(len(rows), 2)       # mC 不进对照表
+
+
 class TestGenerate(ReportBase):
     def test_returns_paths_and_rowcount(self):
         out = report.generate(self.con, '2026-W42', self.out_dir)
@@ -94,8 +142,9 @@ class TestGenerate(ReportBase):
     def test_md_content_calibration_and_top_ordering(self):
         out = report.generate(self.con, '2026-W42', self.out_dir)
         md = open(out['md']).read()
-        # 文首口径说明（R4）与周区间
+        # 文首口径说明（R4，由注册表生成）与周区间
         self.assertIn('口径说明', md)
+        self.assertIn('mpdt/metrics.py 注册表生成', md)
         self.assertIn('2026-10-12 ~ 2026-10-18', md)
         # Top10 按完读率降序：mB(0.40) > mC(0.25) > mA(0.10)
         self.assertLess(md.index('文章mB'), md.index('文章mC'))
@@ -108,6 +157,26 @@ class TestGenerate(ReportBase):
         html = open(out['html']).read()
         self.assertIn('<pre>', html)
         self.assertIn('口径说明', html)
+
+    def test_md_contains_cross_source_section(self):
+        out = report.generate(self.con, '2026-W42', self.out_dir)
+        md = open(out['md']).read()
+        self.assertIn('跨源对照', md)
+        self.assertIn('mA_1', md)
+        self.assertIn('-15.0', md)              # dc 0.10 - ad 0.25
+        self.assertIn('不可直接比', md)
+        self.assertEqual(out['cross_rows'], 2)
+
+    def test_md_cross_section_empty_without_overlap(self):
+        # 只留无交集数据 → 提示无对照文章而非报错
+        con2 = store.connect(os.path.join(self._tmp.name, 'mem.sqlite3'))
+        store.upsert(con2, 'datacube_article', '2026-10-15', 'mA', 1, 'a',
+                     {'finish_read_rate': 0.1})
+        out = report.generate(con2, '2026-W42', self.out_dir)
+        md = open(out['md']).read()
+        self.assertIn('无跨源可对照文章', md)
+        self.assertEqual(out['cross_rows'], 0)
+        con2.close()
 
     def test_empty_week_still_generates_report(self):
         out = report.generate(self.con, '2026-W20', self.out_dir)

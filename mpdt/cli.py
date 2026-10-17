@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""mpdt CLI（FR1/FR3/FR4/FR5/FR6）。子命令：init / fetch / report / export。
+"""mpdt CLI（FR1/FR3/FR4/FR5/FR6）。子命令：init / fetch / report / export / metrics。
 退出码：0 成功（含空数据）｜2 配置｜3 凭据｜4 上游异常。"""
 import argparse
 import datetime as dt
 import json
 import sys
 
-from . import config, store, report
+from . import config, store, report, metrics as metrics_mod
 from .errors import MpdtError, UpstreamError
 
 
@@ -204,17 +204,40 @@ def cmd_report(args):
     con = store.connect(cfg['db_path'])
     week = args.week or f'{today_shanghai().isocalendar().year}-W{today_shanghai().isocalendar().week:02d}'
     out = report.generate(con, week, args.out or 'mpdt-reports')
-    return r.result(f"周报已生成：{out['md']}（数据行 {out['rows']}）",
-                    {'md': out['md'], 'html': out['html'], 'rows': out['rows'], 'week': week})
+    return r.result(f"周报已生成：{out['md']}（数据行 {out['rows']}，跨源对照 {out['cross_rows']} 行）",
+                    {'md': out['md'], 'html': out['html'], 'rows': out['rows'],
+                     'cross_rows': out['cross_rows'], 'week': week})
+
+
+def cmd_metrics(args):
+    """指标口径查询（口径唯一事实源=metrics.py 注册表；查『这个字段是什么口径』）。"""
+    r = RES[0]
+    entries = metrics_mod.to_dicts(args.query)
+    if not JSON_FLAG[0]:
+        print(report._md_table(
+            ['规范名', '源字段', '所属源', '窗口口径', '分母', '单位', '跨源可比'],
+            [[e['name'], e['field'], e['source'], e['window'],
+              e['denominator'], e['unit'], '是' if e['comparable'] else '否']
+             for e in entries]))
+        for fa, sa, fb, sb, why in metrics_mod.CROSS_SOURCE_PAIRS:
+            if args.query and args.query.lower() not in (fa + sa + fb + sb).lower():
+                continue
+            print('⚠ 不可直接比：%s(%s) vs %s(%s)：%s' % (fa, sa, fb, sb, why))
+    return r.result(f'共 {len(entries)} 个指标', entries, total=len(entries),
+                    query=args.query or '')
 
 
 def cmd_export(args):
     r = RES[0]
     cfg = config.load()
     con = store.connect(cfg['db_path'])
-    n = store.export_csv(con, args.source, args.out)
-    return r.result(f'CSV 导出：{args.out}（{n} 行，source={args.source}）',
-                    {'out': args.out, 'rows': n, 'source': args.source})
+    n = store.export_csv(con, args.source, args.out, with_meta=not args.no_meta)
+    meta = {'out': args.out, 'rows': n, 'source': args.source}
+    msg = f'CSV 导出：{args.out}（{n} 行，source={args.source}）'
+    if not args.no_meta:
+        msg += f'（口径元数据：{args.out}.metrics.csv）'
+        meta['metrics_meta'] = args.out + '.metrics.csv'
+    return r.result(msg, meta)
 
 
 def main(argv=None):
@@ -238,7 +261,10 @@ def main(argv=None):
     pd.add_argument('--recent', type=int, default=0, help='按发表记录抓最近 N 天发布的文章')
     pd.add_argument('--count', type=int, default=20, help='发表记录拉取条数（--recent 时用）')
     pd.set_defaults(fn=cmd_detail)
-    pe = sub.add_parser('export'); pe.add_argument('--source', default='datacube_article'); pe.add_argument('--out', default='mpdt-export.csv'); pe.set_defaults(fn=cmd_export)
+    pe = sub.add_parser('export'); pe.add_argument('--source', default='datacube_article'); pe.add_argument('--out', default='mpdt-export.csv'); pe.add_argument('--no-meta', action='store_true', help='不写口径元数据伴随文件 *.metrics.csv'); pe.set_defaults(fn=cmd_export)
+    pm = sub.add_parser('metrics', help='列出全部指标及口径（可查『这个字段是什么口径』）')
+    pm.add_argument('query', nargs='?', default=None, help='按 规范名/源字段/源名 子串过滤')
+    pm.set_defaults(fn=cmd_metrics)
     pre = p.parse_known_args(argv)[0] if argv is not None else None
     args = p.parse_args(argv)
     # 全局态：--json 与 TTY 检测（非 TTY=管道/重定向/cron，过程输出默认静默，结果仍打印）

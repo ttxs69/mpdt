@@ -5,7 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)]()
 [![CI](https://github.com/ttxs69/mpdt/actions/workflows/tests.yml/badge.svg)](https://github.com/ttxs69/mpdt/actions/workflows/tests.yml)
-[![Tests](https://img.shields.io/badge/tests-64%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-98%20passing-brightgreen)]()
 [![Dependencies](https://img.shields.io/badge/dependencies-requests%20%2B%20websocket--client-orange)]()
 
 公众号后台（mp.weixin.qq.com）的运营数据散落在三个页面，官方不提供导出，mpdt 把它们自动抓回本机 SQLite，并生成 Markdown 周报：
@@ -33,7 +33,7 @@ mpdt 的答案：**数据 100% 留在本机**（SQLite + 本地文件），复�
 - **错误语义明确**：退出码 `0` 成功（含空数据）｜`2` 配置问题｜`3` 凭据/登录态问题｜`4` 上游接口异常（附原始返回片段）｜`130` 用户中断（幂等设计，重跑安全）
 - **机器可读输出**：全局 `--json` 参数——stdout 恰好一行 JSON（`{ok, cmd, data, meta}`），适合脚本/管道串联
 - **非交互友好**：stdout 非 TTY（管道 / 重定向 / cron）时自动静默过程输出
-- **零框架测试**：64 个 unittest，零第三方测试依赖，`python3 tests/test_fetchers.py` 直跑
+- **零框架测试**：98 个 unittest，零第三方测试依赖，`python3 tests/test_fetchers.py` 直跑
 
 ## 安装
 
@@ -77,9 +77,50 @@ mpdt report               # → mpdt-reports/weekly-YYYY-Www.md
 | `mpdt fetch` | 发表列表 + datacube 文章级快照 | `--backfill N` / `--from/--to YYYY-MM-DD` / `--count N` |
 | `mpdt detail` | 单篇渠道页（完读率 + 渠道构成） | `--recent N`，或 `--msgid ID --publish-date D [--item-idx 1]` |
 | `mpdt report` | 生成周报 Markdown + HTML | `--week 2026-W42` |
-| `mpdt export` | 导出快照 CSV | `--source SOURCE --out OUT` |
+| `mpdt export` | 导出快照 CSV（附口径元数据 `*.metrics.csv`） | `--source SOURCE --out OUT`（`--no-meta` 关闭伴随文件） |
+| `mpdt metrics` | 列出全部指标及口径 | 可选位置参数按 规范名/源字段/源名 过滤 |
 
 所有命令支持全局 `--json`（stdout 恰好一行 JSON）。
+
+## 指标口径（metrics registry）
+
+| 规范名 | 源字段 | 所属源 | 窗口口径 | 分母 | 单位 | 跨源可比 |
+|---|---|---|---|---|---|---|
+| 阅读数 | `read_num` | publish_list | 实时累计（拉取时点全量） | - | 人次 | 否 |
+| 分享数 | `share_num` | publish_list | 实时累计（拉取时点全量） | - | 次 | 否 |
+| 点赞(在看)数 | `like_num` | publish_list | 实时累计（拉取时点全量） | - | 次 | 否 |
+| 旧版点赞数 | `old_like_num` | publish_list | 实时累计（拉取时点全量） | - | 次 | 否 |
+| 评论数 | `comment_num` | publish_list | 实时累计（拉取时点全量） | - | 条 | 否 |
+| 统计日 | `refdate` | datacube_article | 发表后 7 天窗口，T+1 出数 | - | 日期 | 是 |
+| 完读率(7天·阅读人数口径) | `finish_read_rate` | datacube_article | 发表后 7 天窗口，T+1 出数 | 7 天窗口内阅读人数 | 比例(0-1) | 否 |
+| 阅读率 | `read_rate` | datacube_article | 发表后 7 天窗口，T+1 出数 | 送达人数(send_succ) | 比例(0-1) | 否 |
+| 阅读次数 | `total_pv` | datacube_article | 发表后 7 天窗口，T+1 出数 | - | 次 | 否 |
+| 完读次数 | `total_read_finish` | datacube_article | 发表后 7 天窗口，T+1 出数 | - | 次 | 否 |
+| 分享次数 | `total_share` | datacube_article | 发表后 7 天窗口，T+1 出数 | - | 次 | 否 |
+| 送达人数 | `send_succ` | datacube_article | 发表后 7 天窗口，T+1 出数 | - | 人 | 否 |
+| 阅读人数(全渠道去重) | `read_uv` | article_detail | 发表后 30 天窗口 | - | 人 | 否 |
+| 完读率(30天·pv口径) | `finished_read_pv_ratio` | article_detail | 发表后 30 天窗口 | 阅读次数(pv) | 比例(0-1) | 否 |
+| 分享人数 | `share_uv` | article_detail | 发表后 30 天窗口 | - | 人 | 否 |
+| 点赞数 | `like_cnt` | article_detail | 发表后 30 天窗口 | - | 次 | 否 |
+| 评论数 | `comment_cnt` | article_detail | 发表后 30 天窗口 | - | 条 | 否 |
+| 收藏人数 | `collection_uv` | article_detail | 发表后 30 天窗口 | - | 人 | 否 |
+| 阅读后关注人数 | `follow_after_read_uv` | article_detail | 发表后 30 天窗口 | - | 人 | 否 |
+| 听读人数 | `listen_uv` | article_detail | 发表后 30 天窗口 | - | 人 | 否 |
+| 听读次数 | `listen_pv` | article_detail | 发表后 30 天窗口 | - | 次 | 否 |
+| 在看数 | `zaikan_cnt` | article_detail | 发表后 30 天窗口 | - | 次 | 否 |
+| 赞赏金额 | `praise_money` | article_detail | 发表后 30 天窗口 | - | 上游金额单位 | 否 |
+| 平均阅读时长 | `avg_article_read_time` | article_detail | 发表后 30 天窗口 | - | 秒 | 否 |
+| 发表日 | `publish_date` | article_detail | 发表后 30 天窗口 | - | 日期 | 是 |
+| 窗口天数 | `window_days` | article_detail | 发表后 30 天窗口 | - | 天 | 是 |
+| 全渠道阅读人数(汇总) | `total_read_user` | article_detail | 发表后 30 天窗口 | - | 人 | 否 |
+| 渠道构成 | `channel_breakdown` | article_detail | 发表后 30 天窗口 | 「全部」渠道阅读人数 | JSON | 否 |
+
+易混淆跨源配对（数值不可直接比）：
+- `finish_read_rate`(datacube_article) vs `finished_read_pv_ratio`(article_detail)：同为「完读率」：7天窗口·阅读人数分母 vs 30天窗口·pv 分母，数值不可直接比
+- `total_pv`(datacube_article) vs `read_uv`(article_detail)：同为「阅读量级」：次数口径 vs 去重人数口径
+- `read_num`(publish_list) vs `read_uv`(article_detail)：实时累计 vs 30 天窗口去重人数
+
+> 本节由 `mpdt/metrics.py` 注册表生成（`python3 -c "from mpdt.metrics import readme_section; print(readme_section())"`），改口径请改注册表后同步本节，或运行 `mpdt metrics list` 查看最新口径。
 
 ## FAQ
 

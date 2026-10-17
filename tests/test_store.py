@@ -117,5 +117,58 @@ class TestExportCsv(StoreBase):
         self.assertEqual(len(open(csv_path).read().strip().splitlines()), 1)  # 仅表头
 
 
+class TestExportCsvMeta(StoreBase):
+    def test_sidecar_metrics_csv_written(self):
+        csv_path = os.path.join(self._tmp.name, 'out.csv')
+        store.upsert(self.con, 'datacube_article', '2026-10-15', 'mA', 1, '甲',
+                     {'finish_read_rate': 0.1, 'total_pv': 100})
+        self.con.commit()
+        n = store.export_csv(self.con, 'datacube_article', csv_path)
+        self.assertEqual(n, 1)
+        meta_path = csv_path + '.metrics.csv'
+        self.assertTrue(os.path.exists(meta_path))
+        lines = open(meta_path).read().strip().splitlines()
+        self.assertEqual(lines[0], 'column,source,window,denominator,unit,cross_source_comparable')
+        # 每个指标列一行，口径来自注册表
+        self.assertEqual(len(lines), 3)          # 表头 + finish_read_rate + total_pv
+        fr = next(l for l in lines[1:] if l.startswith('finish_read_rate'))
+        self.assertIn('datacube_article', fr)
+        self.assertIn('7 天窗口', fr)
+        self.assertTrue(fr.endswith(',否'))      # 完读率不可跨源比
+
+    def test_sidecar_marks_unregistered_keys(self):
+        csv_path = os.path.join(self._tmp.name, 'u.csv')
+        store.upsert(self.con, 'article_detail', '2026-10-15', 'mD', 1, '丁',
+                     {'read_uv': 5, 'some_new_upstream_field': 1})
+        self.con.commit()
+        store.export_csv(self.con, 'article_detail', csv_path)
+        lines = open(csv_path + '.metrics.csv').read().strip().splitlines()
+        new = next(l for l in lines if l.startswith('some_new_upstream_field'))
+        self.assertIn('(未登记)', new)
+        known = next(l for l in lines if l.startswith('read_uv'))
+        self.assertIn('30 天窗口', known)        # 登记键来自注册表口径
+
+    def test_no_meta_disables_sidecar(self):
+        csv_path = os.path.join(self._tmp.name, 'nometa.csv')
+        store.upsert(self.con, 'publish_list', '2026-10-15', 'mE', 1, '戊',
+                     {'read_num': 3})
+        self.con.commit()
+        n = store.export_csv(self.con, 'publish_list', csv_path, with_meta=False)
+        self.assertEqual(n, 1)
+        self.assertFalse(os.path.exists(csv_path + '.metrics.csv'))
+
+    def test_sidecar_empty_source_only_header(self):
+        csv_path = os.path.join(self._tmp.name, 'empty2.csv')
+        store.export_csv(self.con, 'nothing', csv_path)
+        self.assertEqual(open(csv_path + '.metrics.csv').read().strip().splitlines(),
+                         ['column,source,window,denominator,unit,cross_source_comparable'])
+
+    def test_csv_metric_meta_from_registry(self):
+        rows = store.csv_metric_meta('publish_list', ['read_num'])
+        self.assertEqual(rows[0][0], 'read_num')
+        self.assertEqual(rows[0][1], 'publish_list')
+        self.assertEqual(rows[0][2], '实时累计（拉取时点全量）')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -199,7 +199,17 @@ class TestExport(CliBase):
         rc, out, err = self.run_cli(['--json', 'export', '--out', csv_path])
         p = json.loads(out)
         self.assertEqual(p['cmd'], 'export')
+        self.assertEqual(p['data'], {'out': csv_path, 'rows': 1, 'source': 'datacube_article',
+                                     'metrics_meta': csv_path + '.metrics.csv'})
+        self.assertTrue(os.path.exists(csv_path + '.metrics.csv'))
+
+    def test_export_no_meta_flag_skips_sidecar(self):
+        self.seed_db()
+        csv_path = os.path.join(self._tmp.name, 'x3.csv')
+        rc, out, err = self.run_cli(['--json', 'export', '--out', csv_path, '--no-meta'])
+        p = json.loads(out)
         self.assertEqual(p['data'], {'out': csv_path, 'rows': 1, 'source': 'datacube_article'})
+        self.assertFalse(os.path.exists(csv_path + '.metrics.csv'))
 
     def test_export_empty_source_still_exit0(self):
         csv_path = os.path.join(self._tmp.name, 'e.csv')
@@ -270,6 +280,50 @@ class TestDetailStubbed(CliBase):
         p = json.loads(buf_out.getvalue())
         self.assertEqual(p['ok'], False)
         self.assertEqual(p['error']['exit_code'], 2)
+
+
+class TestMetricsCmd(CliBase):
+    """mpdt metrics list：人读表格 + --json；退出码 0；不依赖配置/网络。"""
+
+    def test_metrics_list_human_table(self):
+        rc, out, err = self.run_cli(['metrics'])
+        self.assertEqual(rc, 0)
+        self.assertIn('规范名', out)
+        self.assertIn('finish_read_rate', out)
+        self.assertIn('不可直接比', out)          # 跨源易混淆配对提醒
+
+    def test_metrics_list_json_payload_shape(self):
+        rc, out, err = self.run_cli(['--json', 'metrics'])
+        self.assertEqual(rc, 0)
+        p = json.loads(out)
+        self.assertEqual(p['ok'], True)
+        self.assertEqual(p['cmd'], 'metrics')
+        self.assertEqual(p['meta']['total'], len(p['data']))
+        for e in p['data']:
+            self.assertEqual(set(e) >= {'name', 'field', 'source', 'window',
+                                        'denominator', 'unit', 'comparable'}, True)
+
+    def test_metrics_query_finish_read_rate(self):
+        rc, out, err = self.run_cli(['metrics', 'finish_read_rate'])
+        self.assertEqual(rc, 0)
+        self.assertIn('7 天窗口', out)
+        self.assertNotIn('read_uv', out)          # 过滤后只含命中项
+        self.assertIn('不可直接比', out)
+
+    def test_metrics_query_no_match_still_exit0(self):
+        rc, out, err = self.run_cli(['--json', 'metrics', '不存在的指标'])
+        self.assertEqual(rc, 0)                   # 空结果=成功（与空数据语义一致）
+        p = json.loads(out)
+        self.assertEqual(p['data'], [])
+        self.assertEqual(p['meta']['total'], 0)
+
+    def test_metrics_query_read_rate_matches_both_sources(self):
+        # 'read_rate' 子串命中 finish_read_rate / read_rate 等 → 多行
+        rc, out, err = self.run_cli(['--json', 'metrics', 'read_rate'])
+        p = json.loads(out)
+        fields = {e['field'] for e in p['data']}
+        self.assertIn('read_rate', fields)
+        self.assertIn('finish_read_rate', fields)
 
 
 class TestExitCodes(CliBase):

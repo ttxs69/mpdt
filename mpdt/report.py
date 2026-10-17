@@ -1,17 +1,18 @@
-"""周报生成（FR5）：Markdown + HTML；文首口径说明（R4）。"""
+"""周报生成（FR5）：Markdown + HTML；文首口径说明（R4）——由 metrics.py 注册表生成。
+
+跨源对照表：同一篇文章的 datacube 完读率(7天) vs article_detail 完读率(30天)并排，
+自动标注窗口差异与差值，并提醒不可直接比。
+"""
 import datetime as dt
 import html as html_mod
+import json
+import os
 
-CALIBRATION_NOTE = (
-    "> **口径说明（R28 跨源实测校正，同名指标口径不同、不可直接相比）**：\n"
-    "> 1) **datacube「内容分析-文章级」**：**发表后 7 天窗口**，数据 T+1 口径；"
-    "total_pv=**全渠道阅读次数**（含推荐/搜一搜——实测 9/23 文 total_pv 208 ≈ 单篇页全渠道 "
-    "read_uv 190，同量级），read_rate=消息渠道阅读人数/送达人数，finish_read_rate 为该表口径的完成阅读率。\n"
-    "> 2) **单篇渠道页（article_detail）**：**发表后 30 天窗口**；read_uv=全渠道阅读人数，"
-    "finished_read_pv_ratio=完读率(pv 口径)，channel_breakdown=逐渠道人数构成"
-    "（推荐/搜一搜/公众号消息…；同一用户多渠道重复计数 → 占比之和可 >100%）。\n"
-    "> 3) **publish_list read_num**：实时累计全量口径。\n"
-    "> 三源体量相近但分母/窗口不同；跨源比较前先对齐窗口与分母，否则结论可能反向。")
+from . import metrics as metrics_mod
+from .metrics import calibration_note   # 口径说明唯一来源：注册表，不再硬编码
+
+# 跨源对照的配对定义（字段级 → 也登记在 metrics.CROSS_SOURCE_PAIRS，这里绑定报告用列）
+_PAIR = ('finish_read_rate', 'datacube_article', 'finished_read_pv_ratio', 'article_detail')
 
 
 def _week_bounds(iso_week: str):
@@ -26,13 +27,52 @@ def _md_table(header, rows):
     return '\n'.join(out)
 
 
+def cross_source_table(con) -> tuple:
+    """跨源对照：datacube 完读率(7天窗口) vs article_detail 完读率(30天窗口) 并排。
+
+    匹配键 = (appmsgid, itemidx)，各取最新 stat_date 快照行。
+    返回 (header, rows, note)；rows 每行差值列=百分比点的原始差（dc-ad）。
+    """
+    def _latest(source):
+        rows = con.execute(
+            "SELECT appmsgid, itemidx, stat_date, title, metrics FROM snapshots "
+            "WHERE source=? ORDER BY stat_date", (source,)).fetchall()
+        best = {}
+        for am, ix, sd, ti, m in rows:
+            best[(str(am), int(ix))] = (sd, ti, json.loads(m))   # 后写=更新快照日
+        return best
+
+    dc, ad = _latest(_PAIR[1]), _latest(_PAIR[3])
+    f_dc, f_ad = _PAIR[0], _PAIR[2]
+    m_dc = metrics_mod.lookup(f_dc, _PAIR[1])
+    m_ad = metrics_mod.lookup(f_ad, _PAIR[3])
+    header = ['文章', 'appmsgid_itemidx', 'datacube 完读率(7天)', '单篇页完读率(30天)',
+              '差值(百分点)', '窗口差异']
+    rows = []
+    for key in sorted(set(dc) & set(ad)):
+        sd_dc, ti_dc, mm_dc = dc[key]
+        sd_ad, ti_ad, mm_ad = ad[key]
+        v_dc, v_ad = mm_dc.get(f_dc), mm_ad.get(f_ad)
+        if not (isinstance(v_dc, (int, float)) and isinstance(v_ad, (int, float))):
+            continue
+        title = (ti_dc or ti_ad or '')[:36]
+        rows.append([title, '%s_%d' % key,
+                     '%.1f%%' % (100 * v_dc), '%.1f%%' % (100 * v_ad),
+                     '%+.1f' % (100 * (v_dc - v_ad)),
+                     '%s vs %s' % (m_dc.window, m_ad.window)])
+    note = ('（⚠ 不可直接比：`%s`=%s·分母「%s」；`%s`=%s·分母「%s」——'
+            '窗口与分母均不同，差值仅提示两口径的观察差异，非同一口径变化。）' % (
+                f_dc, m_dc.window, m_dc.denominator,
+                f_ad, m_ad.window, m_ad.denominator))
+    return header, rows, note
+
+
 def generate(con, iso_week: str, out_dir: str) -> dict:
     monday, sunday = _week_bounds(iso_week)
     b, e = monday.strftime('%Y-%m-%d'), sunday.strftime('%Y-%m-%d')
     rows = con.execute(
         "SELECT stat_date, title, metrics FROM snapshots WHERE source='datacube_article' "
         "AND stat_date BETWEEN ? AND ? ORDER BY stat_date", (b, e)).fetchall()
-    import json
     arts = [(sd, ti, json.loads(m)) for sd, ti, m in rows]
     # 完读率 Top10（按 appmsgid+itemidx 去重，取最新快照日的行）
     by_key = {}
@@ -43,7 +83,7 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
     top = sorted(by_key.items(), key=lambda kv: -float(kv[1]['finish_read_rate']))[:10]
     top_rows = [[kv[0][0][:40]] + [kv[1].get(k, '') for k in
                   ('finish_read_rate', 'read_rate', 'total_pv', 'total_share')] for kv in top]
-    lines = [f'# 公众号数据周报 {iso_week}（{b} ~ {e}）', '', CALIBRATION_NOTE, '']
+    lines = [f'# 公众号数据周报 {iso_week}（{b} ~ {e}）', '', calibration_note(), '']
     lines.append(f'快照文章行数：{len(arts)}（datacube 文章级，7 天窗口口径）')
     lines.append('')
     if top:
@@ -51,6 +91,17 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
         lines.append(_md_table(['文章', '完读率', '阅读率', '送达pv', '分享'], top_rows))
     else:
         lines.append('本周无 datacube 快照数据（fetch 未覆盖该周，或均为 T+1 未出）。')
+
+    # 跨源对照（同一篇文章：7 天完读率 vs 30 天完读率并排 + 窗口差异 + 差值）
+    hdr, xrows, xnote = cross_source_table(con)
+    lines.append('')
+    lines.append('## 跨源对照：datacube(7天) vs 单篇页(30天) 完读率')
+    if xrows:
+        lines.append(_md_table(hdr, xrows))
+        lines.append(xnote)
+    else:
+        lines.append('（本周无跨源可对照文章：需同一 (appmsgid,itemidx) 同时存在 '
+                     'datacube_article 与 article_detail 两个源的快照。）')
 
     # 单篇渠道构成（FR3②，30 天窗口口径；推荐/搜一搜占比是主路径放量的核心读数）
     det = con.execute(
@@ -89,6 +140,4 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
         f'<title>mpdt 周报 {iso_week}</title></head><body><pre>{html_mod.escape(md)}</pre></body></html>')
     # 写后读回（T2）
     assert open(md_path).read() == md and '口径说明' in open(md_path).read()
-    return {'md': md_path, 'html': html_path, 'rows': len(arts)}
-
-import os  # noqa: E402  (generate 上方使用，集中放头部亦可)
+    return {'md': md_path, 'html': html_path, 'rows': len(arts), 'cross_rows': len(xrows)}

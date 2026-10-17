@@ -10,6 +10,7 @@ jobs:
   test-first:
     # 全矩阵测试通过才允许发布
     uses: ./.github/workflows/tests.yml
+    permissions: {}
 
   build:
     needs: test-first

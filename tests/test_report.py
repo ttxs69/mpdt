@@ -204,6 +204,53 @@ class TestCrossSourceTable(ReportBase):
             self.assertNotIn('old_like_num', h)
 
 
+class TestHtmlTemplate(ReportBase):
+    """阶段 6 打磨：HTML 模板化（md 子集渲染器 + 移动端 CSS）。
+
+    P3 纪律：每个断言对应「机制生效」——表格渲染、列对齐、引用块、
+    HTML 实体转义（防注入标题）、分隔行剔除。
+    """
+
+    def test_table_cell_count_alignment(self):
+        """数据行列数不足/超出表头时补空/截断，不错位。"""
+        html = report._md_table_html('| a | b | c |', ['| 1 |', '| 1 | 2 | 3 | 4 |'])
+        self.assertEqual(html.count('<td>'), 6)          # 2+3=6（补1空、截1多）
+        self.assertIn('<td></td>', html)
+
+    def test_md_to_html_structure(self):
+        md = ('# 标题\n\n## 小节\n\n> 引用一\n> 引用二\n\n| H1 | H2 |\n|---|---|\n'
+              '| a | b |\n\n普通段落 **加粗** 与 `code`。\n')
+        h = report._md_to_html(md)
+        self.assertIn('<h1>标题</h1>', h)
+        self.assertIn('<h2>小节</h2>', h)
+        self.assertIn('<blockquote>引用一<br>引用二</blockquote>', h)
+        self.assertIn('<th>H1</th>', h)
+        self.assertIn('<td>a</td>', h)
+        self.assertIn('<strong>加粗</strong>', h)
+        self.assertIn('<code>code</code>', h)
+        self.assertNotIn('|', h.split('</table>')[0].split('<table>')[1])
+        self.assertNotIn('---', h)
+
+    def test_escaping_title_with_html(self):
+        """标题带 <script> 等内容必须被转义（html_mod.escape 先于一切行内替换）。"""
+        from mpdt import store as store_mod
+        con = store_mod.connect(os.path.join(self.out_dir, 'x.sqlite3'))
+        store_mod.upsert(con, 'datacube_article', '2026-10-15', 1, 1, '<script>alert(1)</script>',
+                         {'finish_read_rate': 0.2, 'read_rate': 0.3, 'total_pv': 5,
+                          'total_share': 1, 'refdate': '2026-10-15'})
+        con.commit()
+        out = report.generate(con, '2026-W42', self.out_dir)
+        h = open(out['html']).read()
+        self.assertNotIn('<script>alert', h)
+        self.assertIn('&lt;script&gt;', h)
+
+    def test_table_recognizes_separator_row(self):
+        """无 --- 分隔行的 | 开头行不是表格（按段落渲染，防误判）。"""
+        h = report._md_to_html('| 不是表格 |\n| 也不是 |')
+        self.assertNotIn('<table>', h)
+        self.assertIn('<p>| 不是表格 |</p>', h)
+
+
 class TestGenerate(ReportBase):
     def test_returns_paths_and_rowcount(self):
         out = report.generate(self.con, '2026-W42', self.out_dir)
@@ -226,8 +273,15 @@ class TestGenerate(ReportBase):
         self.assertIn('45.0', md)
         self.assertIn('25.0%', md)
         html = open(out['html']).read()
-        self.assertIn('<pre>', html)
+        # 阶段 6 模板化：不再是 <pre> 裸转义，表格应为真 <table>
+        self.assertNotIn('<pre>', html)
+        self.assertIn('<table>', html)
+        self.assertIn('<th>文章</th>', html)
         self.assertIn('口径说明', html)
+        self.assertIn('<title>mpdt 周报 2026-W42</title>', html)
+        # 行内元素：**加粗** → <strong>，`码` → <code>
+        self.assertIn('<strong>', html)
+        self.assertIn('<code>', html)
 
     def test_md_contains_wide_table_for_read_completion(self):
         out = report.generate(self.con, '2026-W42', self.out_dir)

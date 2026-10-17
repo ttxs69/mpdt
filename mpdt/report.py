@@ -16,6 +16,114 @@ from . import metrics as metrics_mod
 from .metrics import calibration_note, auto_pairs
 
 
+_MD_INLINE_RE = None  # 延迟编译（re 非必需依赖面）
+
+
+def _inline_html(text: str) -> str:
+    """行内 markdown → HTML：先转义，再 **加粗**、`行内码`。
+
+    本函数只服务本模块自己生成的 md 子集（无嵌套、无链接），不追求通用。
+    """
+    import re
+    text = html_mod.escape(text, quote=False)
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+    return text
+
+
+def _md_table_html(header_line: str, body_lines: list) -> str:
+    """| a | b | 形式的表格行 → <table>（首行表头；第二行是 --- 分隔线，调用方已剔除）。"""
+    def cells(line):
+        parts = [c.strip() for c in line.strip().strip('|').split('|')]
+        return parts
+    h = cells(header_line)
+    out = ['<table>', '<thead><tr>' + ''.join(f'<th>{_inline_html(c)}</th>' for c in h) + '</tr></thead>']
+    out.append('<tbody>')
+    for line in body_lines:
+        cs = cells(line)
+        # 列数对齐表头（多余截断、不足补空，防错位）
+        cs = (cs + [''] * len(h))[:len(h)]
+        out.append('<tr>' + ''.join(f'<td>{_inline_html(c)}</td>' for c in cs) + '</tr>')
+    out.append('</tbody></table>')
+    return '\n'.join(out)
+
+
+def _md_to_html(md: str) -> str:
+    """本报告 md 子集 → HTML 片段（标题/表格/引用/段落）。
+
+    只处理 generate() 会产出的结构：#/##/### 标题、| 表格（含 --- 分隔行）、
+    > 引用块、普通段落行。不支持列表/链接/嵌套——超出子集的行按段落渲染。
+    """
+    lines = md.split('\n')
+    out = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        s = line.strip()
+        if not s:
+            i += 1
+            continue
+        if s.startswith('|') and i + 1 < n and set(lines[i + 1].strip()) <= {'|', '-', ':', ' '} \
+                and '-' in lines[i + 1]:
+            # 表格块：首行表头 + 分隔行 + 数据行（连续 | 开头）
+            j = i + 2
+            body = []
+            while j < n and lines[j].strip().startswith('|'):
+                body.append(lines[j])
+                j += 1
+            out.append(_md_table_html(line, body))
+            i = j
+            continue
+        if s.startswith('### '):
+            out.append(f'<h3>{_inline_html(s[4:])}</h3>')
+        elif s.startswith('## '):
+            out.append(f'<h2>{_inline_html(s[3:])}</h2>')
+        elif s.startswith('# '):
+            out.append(f'<h1>{_inline_html(s[2:])}</h1>')
+        elif s.startswith('>'):
+            # 连续 > 行合并为一个 blockquote
+            quoted = []
+            while i < n and lines[i].strip().startswith('>'):
+                quoted.append(lines[i].strip().lstrip('>').strip())
+                i += 1
+            out.append('<blockquote>' + '<br>'.join(_inline_html(q) for q in quoted) + '</blockquote>')
+            continue
+        else:
+            out.append(f'<p>{_inline_html(s)}</p>')
+        i += 1
+    return '\n'.join(out)
+
+
+_HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+  body {{ font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 900px; margin: 24px auto; padding: 0 16px; color: #1a1a1a; line-height: 1.65; }}
+  h1 {{ font-size: 1.5em; border-bottom: 2px solid #eee; padding-bottom: 8px; }}
+  h2 {{ font-size: 1.25em; margin-top: 1.8em; }}
+  h3 {{ font-size: 1.05em; margin-top: 1.4em; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em;
+           display: block; overflow-x: auto; }}  /* 小屏横向滚动而非挤压换行 */
+  th, td {{ border: 1px solid #ddd; padding: 6px 10px; text-align: left; white-space: nowrap; }}
+  th {{ background: #f7f7f7; }}
+  blockquote {{ margin: 12px 0; padding: 8px 14px; border-left: 4px solid #c8c8c8;
+                background: #fafafa; color: #444; }}
+  code {{ background: #f2f2f2; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }}
+  p {{ margin: 0.6em 0; }}
+</style>
+</head>
+<body>
+{body}
+</body>
+</html>
+"""
+
+
 def _week_bounds(iso_week: str):
     year, week = iso_week.split('-W')
     monday = dt.date.fromisocalendar(int(year), int(week), 1)
@@ -310,10 +418,14 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
     md_path = os.path.join(out_dir, f'weekly-{iso_week}.md')
     open(md_path, 'w').write(md)
     html_path = os.path.join(out_dir, f'weekly-{iso_week}.html')
-    open(html_path, 'w').write(
-        '<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">'
-        f'<title>mpdt 周报 {iso_week}</title></head><body><pre>{html_mod.escape(md)}</pre></body></html>')
+    open(html_path, 'w').write(_HTML_TEMPLATE.format(
+        title=f'mpdt 周报 {iso_week}', body=_md_to_html(md)))
     assert open(md_path).read() == md and '口径说明' in open(md_path).read()
+    # 模板化 HTML 读回断言（P3：机制生效而非碰巧）。注意空库周报无表格——
+    # <table> 存在性由带数据的 TestGenerate/TestHtmlTemplate 覆盖，此处只断言不变量。
+    h = open(html_path).read()
+    assert f'<title>mpdt 周报 {iso_week}</title>' in h and '<pre>' not in h \
+        and '口径说明' in h, 'HTML 模板化断言失败'
     return {'md': md_path, 'html': html_path, 'rows': len(arts),
             'cross_rows': cross_rows_total,
             'concepts_compared': [b['concept'] for b in has_data_concepts],

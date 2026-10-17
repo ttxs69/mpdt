@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mpdt"
+version = "0.1.0"
+description = "公众号运营数据本地 CLI：把后台三源数据抓回本机 SQLite，一键生成周报"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "ttxs69" }]
+requires-python = ">=3.10"
+dependencies = [
+    "requests",
+    "websocket-client",
+]
+keywords = ["wechat", "weixin", "mp", "official-account", "analytics", "cli"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+]
+
+[project.scripts]
+mpdt = "mpdt.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mpdt*"]

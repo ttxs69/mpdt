@@ -275,7 +275,6 @@ class TestHtmlTemplate(ReportBase):
         h = report._md_to_html('# 只有 h1\n\n段落\n')
         self.assertNotIn('<nav class="toc">', h)
 
-
 class TestGenerate(ReportBase):
     def test_returns_paths_and_rowcount(self):
         out = report.generate(self.con, '2026-W42', self.out_dir)

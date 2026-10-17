@@ -281,12 +281,20 @@ def cmd_export(args):
     r = RES[0]
     cfg = config.load()
     con = store.connect(cfg['db_path'])
-    n = store.export_csv(con, args.source, args.out, with_meta=not args.no_meta)
-    meta = {'out': args.out, 'rows': n, 'source': args.source}
-    msg = f'CSV 导出：{args.out}（{n} 行，source={args.source}）'
-    if not args.no_meta:
-        msg += f'（口径元数据：{args.out}.metrics.csv）'
-        meta['metrics_meta'] = args.out + '.metrics.csv'
+    if args.format == 'json':
+        n = store.export_json(con, args.source, args.out, with_meta=not args.no_meta)
+        meta = {'out': args.out, 'rows': n, 'source': args.source, 'format': 'json'}
+        msg = f'JSON 导出：{args.out}（{n} 行，source={args.source}）'
+        if not args.no_meta:
+            msg += '（口径元数据：内嵌 metrics_meta）'
+            meta['metrics_meta'] = 'embedded'
+    else:
+        n = store.export_csv(con, args.source, args.out, with_meta=not args.no_meta)
+        meta = {'out': args.out, 'rows': n, 'source': args.source, 'format': 'csv'}
+        msg = f'CSV 导出：{args.out}（{n} 行，source={args.source}）'
+        if not args.no_meta:
+            msg += f'（口径元数据：{args.out}.metrics.csv）'
+            meta['metrics_meta'] = args.out + '.metrics.csv'
     return r.result(msg, meta)
 
 
@@ -311,7 +319,7 @@ def main(argv=None):
     pd.add_argument('--recent', type=int, default=0, help='按发表记录抓最近 N 天发布的文章')
     pd.add_argument('--count', type=int, default=20, help='发表记录拉取条数（--recent 时用）')
     pd.set_defaults(fn=cmd_detail)
-    pe = sub.add_parser('export'); pe.add_argument('--source', default='datacube_article'); pe.add_argument('--out', default='mpdt-export.csv'); pe.add_argument('--no-meta', action='store_true', help='不写口径元数据伴随文件 *.metrics.csv'); pe.set_defaults(fn=cmd_export)
+    pe = sub.add_parser('export'); pe.add_argument('--source', default='datacube_article'); pe.add_argument('--out', default='mpdt-export.csv'); pe.add_argument('--no-meta', action='store_true', help='不写口径元数据伴随文件 *.metrics.csv'); pe.add_argument('--format', choices=['csv', 'json'], default='csv', help='导出格式（json=结构化载荷，口径元数据内嵌）'); pe.set_defaults(fn=cmd_export)
     pm = sub.add_parser('metrics', help='列出全部指标及口径（可查『这个字段是什么口径』）')
     pm.add_argument('query', nargs='?', default=None, help='按 规范名/源字段/源名 子串过滤')
     pm.set_defaults(fn=cmd_metrics)

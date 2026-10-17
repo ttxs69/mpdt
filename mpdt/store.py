@@ -81,6 +81,40 @@ def csv_metric_meta(source: str, keys) -> list:
     return out
 
 
+def export_json(con, source: str, out_path: str, with_meta=True) -> int:
+    """导出指定 source 的快照 JSON（结构化下游友好版，列序与 CSV 版一致）。
+
+    载荷：source / generated_at / columns（键并集，排序同 CSV）/ row_count /
+    records（每行 stat_date+appmsgid+itemidx+title+指标键）/ metrics_meta
+    （with_meta=True 时内嵌，行结构与 CSV 伴随文件 *.metrics.csv 完全一致）。
+    """
+    rows = con.execute(
+        "SELECT stat_date, appmsgid, itemidx, title, metrics FROM snapshots "
+        "WHERE source=? ORDER BY stat_date, appmsgid", (source,)).fetchall()
+    keys = sorted({k for _, _, _, _, m in rows for k in json.loads(m)})
+    records = []
+    for sd, am, ix, ti, m in rows:
+        rec = {'stat_date': sd, 'appmsgid': am, 'itemidx': ix, 'title': ti}
+        rec.update(json.loads(m))
+        records.append(rec)
+    payload = {
+        'source': source,
+        'generated_at': dt.datetime.now().astimezone().isoformat(timespec='seconds'),
+        'columns': ['stat_date', 'appmsgid', 'itemidx', 'title'] + keys,
+        'row_count': len(rows),
+        'records': records,
+    }
+    if with_meta:
+        payload['metrics_meta'] = {
+            'columns': ['column', 'source', 'window', 'denominator', 'unit',
+                        'cross_source_comparable'],
+            'rows': csv_metric_meta(source, keys),
+        }
+    with open(out_path, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    return len(rows)
+
+
 def _concept_series_count(reg_key: str) -> int:
     """查询某个登记键（非 deprecated）下的 series 数。"""
     if reg_key in metrics_mod.CONCEPTS:

@@ -112,9 +112,53 @@ class TestExportCsv(StoreBase):
         self.assertTrue(lines[2].endswith(','))      # total_pv 缺失 → 空列
 
     def test_export_empty_source_returns_zero_rows(self):
-        csv_path = os.path.join(self._tmp.name, 'empty.csv')
+        csv_path = self._tmp.name + '/empty.csv'
         self.assertEqual(store.export_csv(self.con, 'nothing', csv_path), 0)
         self.assertEqual(len(open(csv_path).read().strip().splitlines()), 1)  # 仅表头
+
+
+class TestExportJson(StoreBase):
+    def test_export_json_payload_and_meta(self):
+        out = self._tmp.name + '/out.json'
+        store.upsert(self.con, 'datacube_article', '2026-10-15', 'mA', 1, '甲',
+                     {'finish_read_rate': 0.1, 'total_pv': 100})
+        store.upsert(self.con, 'datacube_article', '2026-10-16', 'mB', 1, '乙',
+                     {'read_rate': 0.5})                      # 键集不同 → 并集+缺键补空
+        self.con.commit()
+        n = store.export_json(self.con, 'datacube_article', out)
+        self.assertEqual(n, 2)
+        p = json.loads(open(out, encoding='utf-8').read())
+        self.assertEqual(p['source'], 'datacube_article')
+        self.assertEqual(p['row_count'], 2)
+        self.assertEqual(p['columns'],
+                         ['stat_date', 'appmsgid', 'itemidx', 'title',
+                          'finish_read_rate', 'read_rate', 'total_pv'])
+        self.assertEqual([r['appmsgid'] for r in p['records']], ['mA', 'mB'])
+        self.assertEqual(p['records'][0]['total_pv'], 100)
+        self.assertNotIn('total_pv', p['records'][1])         # 缺键=字段缺失（结构化语义）
+        # 口径元数据内嵌：列结构与 CSV 伴随文件一致
+        self.assertEqual(p['metrics_meta']['columns'],
+                         ['column', 'source', 'window', 'denominator', 'unit',
+                          'cross_source_comparable'])
+        cols = [row[0] for row in p['metrics_meta']['rows']]
+        self.assertEqual(cols, ['finish_read_rate', 'read_rate', 'total_pv'])
+
+    def test_export_json_no_meta(self):
+        out = self._tmp.name + '/nometa.json'
+        store.upsert(self.con, 'publish_list', '2026-10-16', 'mB', 1, '乙', {'read_num': 9})
+        self.con.commit()
+        store.export_json(self.con, 'publish_list', out, with_meta=False)
+        p = json.loads(open(out, encoding='utf-8').read())
+        self.assertNotIn('metrics_meta', p)
+        self.assertEqual(p['records'][0]['read_num'], 9)
+
+    def test_export_json_empty_source(self):
+        out = self._tmp.name + '/empty.json'
+        self.assertEqual(store.export_json(self.con, 'nothing', out), 0)
+        p = json.loads(open(out, encoding='utf-8').read())
+        self.assertEqual(p['row_count'], 0)
+        self.assertEqual(p['records'], [])
+        self.assertEqual(p['metrics_meta']['rows'], [])        # 空 source 仍带元数据表头
 
 
 class TestExportCsvMeta(StoreBase):

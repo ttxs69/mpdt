@@ -205,7 +205,7 @@ class TestExport(CliBase):
         p = json.loads(out)
         self.assertEqual(p['cmd'], 'export')
         self.assertEqual(p['data'], {'out': csv_path, 'rows': 1, 'source': 'datacube_article',
-                                     'metrics_meta': csv_path + '.metrics.csv'})
+                                     'format': 'csv', 'metrics_meta': csv_path + '.metrics.csv'})
         self.assertTrue(os.path.exists(csv_path + '.metrics.csv'))
 
     def test_export_no_meta_flag_skips_sidecar(self):
@@ -213,7 +213,8 @@ class TestExport(CliBase):
         csv_path = os.path.join(self._tmp.name, 'x3.csv')
         rc, out, err = self.run_cli(['--json', 'export', '--out', csv_path, '--no-meta'])
         p = json.loads(out)
-        self.assertEqual(p['data'], {'out': csv_path, 'rows': 1, 'source': 'datacube_article'})
+        self.assertEqual(p['data'], {'out': csv_path, 'rows': 1, 'source': 'datacube_article',
+                                     'format': 'csv'})
         self.assertFalse(os.path.exists(csv_path + '.metrics.csv'))
 
     def test_export_empty_source_still_exit0(self):
@@ -221,6 +222,39 @@ class TestExport(CliBase):
         rc, out, err = self.run_cli(['--json', 'export', '--source', 'nothing', '--out', csv_path])
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(out)['data']['rows'], 0)
+
+    def test_export_format_json_writes_payload(self):
+        self.seed_db()
+        out = os.path.join(self._tmp.name, 'x.json')
+        rc, out_s, err = self.run_cli(['--json', 'export', '--out', out, '--format', 'json'])
+        self.assertEqual(rc, 0)
+        p = json.loads(out_s)
+        self.assertEqual(p['data'], {'out': out, 'rows': 1, 'source': 'datacube_article',
+                                     'format': 'json', 'metrics_meta': 'embedded'})
+        payload = json.loads(open(out, encoding='utf-8').read())
+        self.assertEqual(payload['row_count'], 1)
+        self.assertIn('metrics_meta', payload)
+        self.assertEqual(payload['columns'][0], 'stat_date')
+
+    def test_export_format_json_no_meta(self):
+        self.seed_db()
+        out = os.path.join(self._tmp.name, 'nm.json')
+        rc, out_s, err = self.run_cli(['--json', 'export', '--out', out, '--format', 'json',
+                                       '--no-meta'])
+        self.assertEqual(rc, 0)
+        self.assertNotIn('metrics_meta', json.loads(out_s)['data'])
+        payload = json.loads(open(out, encoding='utf-8').read())
+        self.assertNotIn('metrics_meta', payload)
+
+    def test_export_format_csv_default_unchanged(self):
+        csv_path = os.path.join(self._tmp.name, 'd.csv')
+        rc, out, err = self.run_cli(['--json', 'export', '--out', csv_path])
+        self.assertEqual(json.loads(out)['data']['format'], 'csv')
+
+    def test_export_invalid_format_rejected(self):
+        with self.assertRaises(SystemExit) as cm:            # argparse choices 拒绝 → exit 2
+            self.run_cli(['--json', 'export', '--format', 'xml'])
+        self.assertEqual(cm.exception.code, 2)
 
 
 class TestFetchStubbed(CliBase):

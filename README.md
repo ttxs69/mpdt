@@ -38,7 +38,10 @@ mpdt 的答案：**数据 100% 留在本机**（SQLite + 本地文件），复�
 ## 安装
 
 ```bash
-# 推荐：pip 安装
+# 推荐：一行命令试跑（uvx，免安装；需 https://github.com/astral-sh/uv）
+uvx --from git+https://github.com/ttxs69/mpdt.git mpdt --help
+
+# 或 pip 安装
 pip install git+https://github.com/ttxs69/mpdt.git
 
 # 或本地安装

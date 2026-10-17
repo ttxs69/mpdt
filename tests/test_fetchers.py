@@ -155,7 +155,28 @@ class TestExitSemantics(unittest.TestCase):
 
 
 class TestStage6JsonTtyInterrupt(unittest.TestCase):
-    """阶段 6 打磨回归：--json / TTY 静默 / Ctrl-C exit 130（T1 三态产品化）。"""
+    """阶段 6 打磨回归：--json / TTY 静默 / Ctrl-C exit 130（T1 三态产品化）。
+
+    环境隔离：cli.main 经 config.load() 读 ~/.mpdt/config.json——本机存在不代表
+    CI runner 存在（曾被 CI 揭穿为假阳性）。本类把 CONFIG_* 与 DB 指到临时目录，
+    并为 report 预置最小配置+空库，断言全部不变。
+    """
+
+    def setUp(self):
+        import tempfile
+        from mpdt import config as _cfg
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved = (_cfg.CONFIG_DIR, _cfg.CONFIG_PATH, _cfg.DEFAULTS['db_path'])
+        _cfg.CONFIG_DIR = self._tmp.name
+        _cfg.CONFIG_PATH = os.path.join(self._tmp.name, 'config.json')
+        _cfg.DEFAULTS['db_path'] = os.path.join(self._tmp.name, 'mpdt.sqlite3')
+        _cfg.save({'db_path': _cfg.DEFAULTS['db_path']})
+
+    def tearDown(self):
+        from mpdt import config as _cfg
+        _cfg.CONFIG_DIR, _cfg.CONFIG_PATH, dbp = self._saved
+        _cfg.DEFAULTS['db_path'] = dbp
+        self._tmp.cleanup()
 
     def test_json_report_single_line_payload(self):
         import contextlib, io, json as j

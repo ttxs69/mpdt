@@ -36,5 +36,6 @@ def save(cfg: dict) -> None:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)          # 600
     os.replace(tmp, CONFIG_PATH)
-    # 写后读回（T2 断言）
-    assert json.load(open(CONFIG_PATH)).get('db_path') == cfg.get('db_path', DEFAULTS['db_path']), 'config write-then-readback failed'
+    # 写后读回（T2 断言）：cfg 未含 db_path 时文件里也没有该键，读回侧同样取默认值再比对
+    saved = json.load(open(CONFIG_PATH))
+    assert saved.get('db_path', DEFAULTS['db_path']) == cfg.get('db_path', DEFAULTS['db_path']), 'config write-then-readback failed'

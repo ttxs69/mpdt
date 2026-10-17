@@ -4,7 +4,8 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)]()
-[![Tests](https://img.shields.io/badge/tests-19%20passing-brightgreen)]()
+[![CI](https://github.com/ttxs69/mpdt/actions/workflows/tests.yml/badge.svg)](https://github.com/ttxs69/mpdt/actions/workflows/tests.yml)
+[![Tests](https://img.shields.io/badge/tests-64%20passing-brightgreen)]()
 [![Dependencies](https://img.shields.io/badge/dependencies-requests%20%2B%20websocket--client-orange)]()
 
 公众号后台（mp.weixin.qq.com）的运营数据散落在三个页面，官方不提供导出，mpdt 把它们自动抓回本机 SQLite，并生成 Markdown 周报：
@@ -32,7 +33,7 @@ mpdt 的答案：**数据 100% 留在本机**（SQLite + 本地文件），复�
 - **错误语义明确**：退出码 `0` 成功（含空数据）｜`2` 配置问题｜`3` 凭据/登录态问题｜`4` 上游接口异常（附原始返回片段）｜`130` 用户中断（幂等设计，重跑安全）
 - **机器可读输出**：全局 `--json` 参数——stdout 恰好一行 JSON（`{ok, cmd, data, meta}`），适合脚本/管道串联
 - **非交互友好**：stdout 非 TTY（管道 / 重定向 / cron）时自动静默过程输出
-- **零框架测试**：19 个 unittest，零第三方测试依赖，`python3 tests/test_fetchers.py` 直跑
+- **零框架测试**：64 个 unittest，零第三方测试依赖，`python3 tests/test_fetchers.py` 直跑
 
 ## 安装
 

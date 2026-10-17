@@ -38,11 +38,8 @@ mpdt 的答案：**数据 100% 留在本机**（SQLite + 本地文件），复�
 ## 安装
 
 ```bash
-# 推荐：一行命令试跑（uvx，免安装；需 https://github.com/astral-sh/uv）
-uvx --from git+https://github.com/ttxs69/mpdt.git mpdt --help
-
-# 或 pip 安装
-pip install git+https://github.com/ttxs69/mpdt.git
+# 推荐：pip 安装
+pip install mpdt
 
 # 或本地安装
 git clone https://github.com/ttxs69/mpdt.git
@@ -80,31 +77,10 @@ mpdt report               # → mpdt-reports/weekly-YYYY-Www.md
 | `mpdt fetch` | 发表列表 + datacube 文章级快照 | `--backfill N` / `--from/--to YYYY-MM-DD` / `--count N` |
 | `mpdt detail` | 单篇渠道页（完读率 + 渠道构成） | `--recent N`，或 `--msgid ID --publish-date D [--item-idx 1]` |
 | `mpdt report` | 生成周报 Markdown + HTML | `--week 2026-W42` |
-| `mpdt export` | 导出快照 CSV/JSON（CSV 附口径元数据 `*.metrics.csv`；JSON 内嵌 `metrics_meta`） | `--source SOURCE --out OUT --format {csv,json}`（`--no-meta` 关闭伴随文件） |
+| `mpdt export` | 导出快照 CSV（附口径元数据 `*.metrics.csv`） | `--source SOURCE --out OUT`（`--no-meta` 关闭伴随文件） |
 | `mpdt metrics` | 列出全部指标及口径（按概念分组） | 可选位置参数按 概念名/显示名/源/字段 子串过滤 |
 
 所有命令支持全局 `--json`（stdout 恰好一行 JSON）。
-
-### export JSON 载荷示例
-
-`mpdt export --source datacube_article --format json --out out.json` 生成结构化载荷（`--format csv` 保持默认行为不变）：
-
-```json
-{
-  "source": "datacube_article",
-  "generated_at": "2026-10-17T12:10:00+08:00",
-  "columns": ["stat_date", "appmsgid", "itemidx", "title", "refdate", "finish_read_rate", "…（列序与 CSV 一致）"],
-  "row_count": 9,
-  "records": [
-    {"stat_date": "2026-10-17", "appmsgid": "2247485100", "itemidx": 1,
-     "title": "AnyPS5 登顶 GH Trending · 10月9日 · GitHub / HN / HF / PH 一览",
-     "refdate": "20261009", "finish_read_rate": 0.069}
-  ],
-  "metrics_meta": {"columns": ["series_key", "concept", "…"], "records": "（28 指标口径注册表，同 CSV 伴随文件 *.metrics.csv）"}
-}
-```
-
-字段与 CSV 完全一致（列序同 `columns`）；口径元数据不再单独成文件，内嵌于 `metrics_meta`。适合状态文件/看板/LLM 取数等机器消费场景。
 
 ## 指标口径（CONCEPTS · 按概念分组）
 

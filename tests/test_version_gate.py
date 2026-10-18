@@ -74,7 +74,16 @@ class VersionGateTests(unittest.TestCase):
         # "no bump" (correct: post-release HEAD without bump is exactly the state
         # the gate exists to flag). Message must name both file locations so the
         # failure is actionable regardless of which branch of the gate fires.
-        rc, msg = self.gate.check(REPO)
+        # NOTE: shallow checkouts (unit-test job, fetch-depth=1) have no tags —
+        # highest_tag exits 2 there; degrade to skip rather than error (the
+        # version-gate CI job runs the same path with full tags). Environment-
+        # dependent test preconditions must skip, not fail (T22/T37 family).
+        try:
+            rc, msg = self.gate.check(REPO)
+        except SystemExit as e:
+            if e.code == 2:
+                self.skipTest("shallow checkout without tags — covered by version-gate CI job")
+            raise
         self.assertEqual(rc, 1)
         self.assertIn("pyproject", msg)
         self.assertIn("__init__", msg)

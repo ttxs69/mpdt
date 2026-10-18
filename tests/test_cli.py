@@ -285,6 +285,45 @@ class TestFetchStubbed(CliBase):
         con.close()
         self.assertEqual(n, 2)
 
+    def test_fetch_persists_create_time_and_send_hour(self):
+        """R101：publish_list 入库须带 create_time/publish_date/send_hour（元数据）。
+
+        根因=C20 external_rules.publish_window 结构性不可消费——解析层提取了
+        create_time 但 cli 入库只存 5 数值指标，发布时刻在 L1 就被丢弃。
+        send_hour 口径=群发时刻（publish_info.create_time，贴图回退 sent_info.time）
+        的北京时间 HH:MM。
+        """
+        art = self.pl_article(create_time=1791508200, publish_date='2026-10-09')  # 10-09 09:10+08（parse 层从 create_time 派生 publish_date，恒一致）
+        pl = _pl_stub([art])
+        dc = _dc_stub([])
+        rc, out, err = self.run_cli(['--json', 'fetch'], patch_fetch=(pl, dc))
+        self.assertEqual(rc, 0)
+        con = real_store.connect(config.DEFAULTS['db_path'])
+        row = con.execute(
+            "SELECT metrics FROM snapshots WHERE stat_date='2026-10-17'"
+            " AND source='publish_list' AND appmsgid='mA'").fetchone()
+        con.close()
+        self.assertIsNotNone(row, 'publish_list 行未入库')
+        m = json.loads(row[0])
+        self.assertEqual(m.get("create_time"), 1791508200)
+        self.assertEqual(m.get('publish_date'), '2026-10-09')
+        self.assertEqual(m.get('send_hour'), '09:10')
+
+    def test_fetch_persists_send_hour_none_when_no_create_time(self):
+        art = self.pl_article(create_time=None)  # 老上游缺字段：不虚构，存 null
+        pl = _pl_stub([art])
+        dc = _dc_stub([])
+        rc, out, err = self.run_cli(['--json', 'fetch'], patch_fetch=(pl, dc))
+        self.assertEqual(rc, 0)
+        con = real_store.connect(config.DEFAULTS['db_path'])
+        row = con.execute(
+            "SELECT metrics FROM snapshots WHERE stat_date='2026-10-17'"
+            " AND source='publish_list' AND appmsgid='mA'").fetchone()
+        con.close()
+        m = json.loads(row[0])
+        self.assertIsNone(m.get('send_hour'))
+        self.assertIsNone(m.get('create_time'))
+
     def test_fetch_from_to_dates(self):
         pl = _pl_stub([])
         dc = _dc_stub([])

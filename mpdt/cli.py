@@ -100,9 +100,21 @@ def cmd_fetch(args):
     pl = publish_list.fetch(s, count=args.count)
     for i, a in enumerate(pl['articles'], 1):
         r.progress(i, len(pl['articles']), f'入库 {a["title"][:24]}')
+        # R101：create_time/publish_date/send_hour 元数据随行入库（C20 publish_window
+        # 消费链的 L1 缺口——解析层早有、入库曾丢弃）。send_hour=群发时刻北京时间
+        # HH:MM；上游缺 create_time 时三键均存 null，不虚构。
+        ct = a.get('create_time')
+        send_hour = None
+        if isinstance(ct, int) and ct > 0:
+            send_hour = dt.datetime.fromtimestamp(
+                ct, dt.timezone(dt.timedelta(hours=8))).strftime('%H:%M')
         store.upsert(con, 'publish_list', stat_date, a['appmsgid'], a['itemidx'],
-                     a['title'], {k: a[k] for k in
-                                  ('read_num', 'share_num', 'like_num', 'old_like_num', 'comment_num')})
+                     a['title'], {**{k: a.get(k) for k in
+                                     ('read_num', 'share_num', 'like_num',
+                                      'old_like_num', 'comment_num')},
+                                  'create_time': ct if isinstance(ct, int) and ct > 0 else None,
+                                  'publish_date': a.get('publish_date') or None,
+                                  'send_hour': send_hour})
     n_total += len(pl['articles'])
     store.log_run(con, 'fetch:publish_list', True, f"{len(pl['articles'])} articles")
     r.say(f'拉取 datacube（{begin} ~ {end}，T+1 口径）…')

@@ -55,3 +55,29 @@ jobs:
         run: python -m compileall -q mpdt tests tools
 
       # 轻量级：只编译检查，不引入 ruff/black 风格争论
+
+  version-gate:
+    # R113 e1 rule: dual-file version (pyproject + __init__) must stay in sync
+    # and never regress below an existing tag. Triggered on PRs only — on a
+    # PR, "version == an existing tag" is allowed (docs/CI-only changes must
+    # not be forced to bump); only mismatch or regression fails.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tags needed for the monotonic check
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch tags
+        run: git fetch --tags origin
+
+      - name: Version gate — dual-file sync + no regression below tag
+        env:
+          GATE_ALLOW_EQ: "1"  # PRs may keep version == existing tag; only regression/mismatch fails
+        run: python tools/version_gate.py
+

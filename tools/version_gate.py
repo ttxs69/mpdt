@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""version_gate.py — dual-file version consistency + monotonic bump gate.
+
+Rule (from R113 e1, T2/T8 family variant): in projects carrying the version in
+TWO files (pyproject.toml + mpdt/__init__.py), a feature commit that edits
+__init__ from a stale baseline can silently regress the version while all tests
+stay green (exactly what happened between v0.2.3/v0.2.4 — commit 1cdd7e4
+reverted __init__ to 0.2.2 while pyproject said 0.2.3).
+
+Gate (exit codes):
+  0 = files agree AND version > highest semver git tag
+  1 = violation, message on stderr names both locations / what to do
+  2 = tool error (missing file, no tags, bad git)
+
+Usage:
+  python tools/version_gate.py [repo_root]   (default: cwd)
+"""
+import os
+import re
+import subprocess
+import sys
+
+INIT_RE = re.compile(r"^__version__\s*=\s*['\"]([^'\"]+)['\"]", re.M)
+PYPROJECT_RE = re.compile(r'^version\s*=\s*["\']([^"\']+)["\']', re.M)
+
+
+def parse_semver(v):
+    """'v1.2.3'/'1.2.3' -> (1,2,3); returns None for non-semver strings."""
+    v = v.strip().lstrip("vV")
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)", v)
+    if not m:
+        return None
+    return tuple(int(x) for x in m.groups())
+
+
+def read_versions(root):
+    pp = os.path.join(root, "pyproject.toml")
+    init = os.path.join(root, "mpdt", "__init__.py")
+    for p in (pp, init):
+        if not os.path.isfile(p):
+            sys.stderr.write("version_gate: missing %s\n" % p)
+            sys.exit(2)
+    pp_text = open(pp, encoding="utf-8").read()
+    init_text = open(init, encoding="utf-8").read()
+    m1 = PYPROJECT_RE.search(pp_text)
+    m2 = INIT_RE.search(init_text)
+    if not m1 or not m2:
+        sys.stderr.write(
+            "version_gate: cannot parse version (pyproject=%s __init__=%s)\n" % (m1 and m1.group(1), m2 and m2.group(1))
+        )
+        sys.exit(2)
+    return m1.group(1).strip(), m2.group(1).strip()
+
+
+def highest_tag(root):
+    out = subprocess.run(
+        ["git", "-C", root, "tag", "--list"],
+        capture_output=True, text=True, timeout=30,
+    )
+    if out.returncode != 0:
+        sys.stderr.write("version_gate: git tag failed: %s\n" % out.stderr.strip())
+        sys.exit(2)
+    best, best_sem = None, None
+    for line in out.stdout.split():
+        sem = parse_semver(line)
+        if sem and (best_sem is None or sem > best_sem):
+            best, best_sem = line, sem
+    if best is None:
+        sys.stderr.write("version_gate: no semver tags found in repo\n")
+        sys.exit(2)
+    return best, best_sem
+
+
+def check(root, allow_eq=False):
+    """Returns (exit_code, message). allow_eq: version == highest tag is OK (PR mode)."""
+    v_pp, v_init = read_versions(root)
+    tag_name, tag_sem = highest_tag(root)
+    sem_pp, sem_init = parse_semver(v_pp), parse_semver(v_init)
+    if sem_pp is None or sem_init is None or tag_sem is None:
+        msg = "version_gate: non-semver version (pyproject=%s __init__=%s)" % (v_pp, v_init)
+        print(msg, file=sys.stderr)
+        return 2, msg
+    if v_pp != v_init or sem_pp != sem_init:
+        msg = (
+            "version_gate: VERSION MISMATCH — pyproject.toml=%s but mpdt/__init__.py=%s.\n"
+            "Fix: align both files before commit (release commits are the ONLY place version changes)."
+            % (v_pp, v_init)
+        )
+        print(msg, file=sys.stderr)
+        return 1, msg
+    if sem_pp < tag_sem or (sem_pp == tag_sem and not allow_eq):
+        mode = "EQUAL" if sem_pp == tag_sem else "BELOW"
+        msg = (
+            "version_gate: VERSION %s — pyproject.toml and mpdt/__init__.py agree at %s but highest tag is %s.\n"
+            "Fix: if this commit changes mpdt, bump BOTH files to > %s (version bump only in release commit); "
+            "%s"
+            % (mode, v_pp, tag_name, tag_name,
+               "if this is a docs/CI-only change not touching mpdt/, this failure means a bump is expected — "
+               "or run with GATE_ALLOW_EQ=1 on PRs." if not allow_eq else
+               "docs/CI-only PRs: coordinate a release bump or keep mpdt/ unchanged.")
+        )
+        print(msg, file=sys.stderr)
+        return 1, msg
+    print("version_gate OK: %s (files agree, %s %s)" % (v_pp, ">" if sem_pp > tag_sem else "==", tag_name))
+    return 0, "OK"
+
+
+if __name__ == "__main__":
+    root = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
+    allow_eq = os.environ.get("GATE_ALLOW_EQ") == "1"
+    code, _ = check(root, allow_eq=allow_eq)
+    sys.exit(code)

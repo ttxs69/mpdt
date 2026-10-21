@@ -15,7 +15,7 @@
 
 报告长这样（我自己的号，真实数据）：
 
-![内容系列对照表](https://ttxs69.github.io/mpdt/diagnosis/assets/table.png)
+![内容系列对照表](https://ttxs69.github.io/mpdt/assets/table.png)
 
 它给的结论和下面的人工版**同源**（共用同一份判定内核），只是没有逐篇改法。
 

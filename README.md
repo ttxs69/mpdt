@@ -31,7 +31,7 @@
 > **国内打不开 GitHub Pages？** 用[单文件版](https://ttxs69.github.io/mpdt/self-service-single.html)——
 > 33 KB 的一个 HTML，下载后双击就能跑，可以微信直接转发给别人。
 
-![内容系列对照表](docs/diagnosis/assets/table.png)
+![内容系列对照表](https://ttxs69.github.io/mpdt/assets/table.png)
 
 需要人工解读、逐篇改法或每月持续跟踪：
 

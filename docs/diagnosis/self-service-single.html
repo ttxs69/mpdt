@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>公众号推荐机制诊断 · 自助版（数据不出你的浏览器）</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --line:#262b36; --fg:#e6e9ef; --dim:#9aa4b2;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:15px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 80px}
+  h1{font-size:24px;margin:0 0 6px}
+  h2{font-size:18px;margin:28px 0 10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .sub{color:var(--dim);font-size:14px;margin-bottom:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin:16px 0}
+  .drop{border:2px dashed var(--line);border-radius:10px;padding:34px;text-align:center;cursor:pointer;transition:.15s}
+  .drop:hover,.drop.hot{border-color:var(--acc);background:#11151d}
+  .drop b{color:var(--acc)}
+  button{background:var(--acc);color:#08121f;border:0;border-radius:6px;padding:9px 18px;
+         font-size:14px;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.ghost{background:transparent;color:var(--dim);border:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:10px 0}
+  th,td{border-bottom:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+  th{color:var(--dim);font-weight:600}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid}
+  .t-ok{color:var(--ok);border-color:#1d572f;background:#0f2417}
+  .t-warn{color:var(--warn);border-color:#5c4413;background:#241d0f}
+  .t-bad{color:var(--bad);border-color:#6e2b28;background:#2a1414}
+  .t-acc{color:var(--acc);border-color:#1f3d63;background:#0d1826}
+  ol,ul{padding-left:22px}
+  li{margin:5px 0}
+  .note{color:var(--dim);font-size:13px}
+  .big{font-size:19px;font-weight:700}
+  code{background:#11151d;padding:1px 5px;border-radius:4px;font-size:13px}
+  .privacy{background:#0f2417;border:1px solid #1d572f;border-radius:8px;padding:12px 14px;font-size:13.5px}
+  .err{background:#2a1414;border:1px solid #6e2b28;border-radius:8px;padding:12px 14px;white-space:pre-wrap}
+  .cta{background:#0d1826;border:1px solid #1f3d63;border-radius:8px;padding:16px;margin-top:22px}
+  .hide{display:none}
+  .steps{counter-reset:s}
+  .steps li{margin:9px 0}
+  a{color:var(--acc)}
+  footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>公众号推荐机制诊断 · 自助版</h1>
+  <div class="sub">上传后台导出的「已发表内容明细」，30 秒内得到一份带动作的诊断报告。<b>数据全程在你的浏览器里处理，不上传、不存储。</b></div>
+
+  <div class="privacy">
+    <b>这是单文件版</b>：全部逻辑都在这一个 HTML 文件里，可以离线用、可以转发给别人。数据同样只在你自己的电脑上处理。
+    <b>隐私</b>：这个页面是一个纯静态 HTML 文件，没有任何后端。文件内容用浏览器本地 API 解析，
+    不会发到任何服务器。你可以直接下载保存这个文件，断网也能用。
+  </div>
+
+  <h2>一、拿数据</h2>
+  <ol class="steps">
+    <li>公众号后台 → <b>内容分析 → 已发表内容 → 全部</b>（注意要选「全部」，不是「已通知内容」）</li>
+    <li>点页面顶部的 <b>「下载数据明细」</b>，得到一个 .xlsx</li>
+    <li>把文件拖到下面的框里（也支持 .csv）</li>
+  </ol>
+  <p class="note">不要改表头、不要删行。原样拖进来就行。表头认不出来时页面会告诉你缺哪一列。</p>
+
+  <div class="drop" id="drop">
+    <p><b>把 .xlsx / .csv 拖到这里</b></p>
+    <p class="note">或 <button class="ghost" id="pick">选择文件</button></p>
+    <input type="file" id="file" accept=".xlsx,.csv,.xlsm" hidden>
+  </div>
+
+  <div id="err" class="err hide"></div>
+
+  <h2>二、看结论</h2>
+  <div id="out" class="hide"></div>
+
+  <div class="cta" id="cta" style="display:none">
+    <div class="big">想要人工解读？</div>
+    <p>这份自助报告是同一个判定内核跑出来的，结论口径与服务版完全一致。
+    如果你需要：<b>逐篇的改法</b>、<b>你号特有的问题诊断</b>、<b>每月持续跟踪</b>，可以找我做人工版。</p>
+    <p><b>三档可选，先从最便宜的一档开始：</b></p>
+    <ul>
+      <li><b>¥99 · 首次限时咨询（30 分钟）</b> —— 只聊你这个号，看完自助报告指出盲点，给 3 条针对你的判断，
+          <b>不交报告只交判断</b>。严格 30 分钟。同一号仅限一次。</li>
+      <li><b>¥499 · 单号诊断（24 小时）</b> —— 完整 7 节报告 + 逐篇定位 + 不要做什么清单 + 3 轮追问。
+          30 天内升级月度，这 ¥499 全额抵扣。</li>
+      <li><b>¥1,999/月 · 月度陪跑</b> —— 每月 1 次诊断 + 4 次问答 + 月度趋势对比
+          （单次诊断看不出你的系列是在变好还是变差，这项才有）。</li>
+    </ul>
+    <p class="note">代运营/外包服务商：¥149/号，5 号起 ¥745，报告可白标转给你的客户。</p>
+    <p class="note">为什么有 ¥99 这一档：自助报告能验证我懂不懂，但验证不了"针对你的号"——
+        这一档就是买那 3 条针对你的判断。首咨费升级时全额抵扣。</p>
+    <p class="note">我们不承诺阅读量、涨粉数、能不能被推荐——平台分发不受单方控制，承诺这些就是骗你。
+    我们承诺：每个数字都带分母，你能用自己后台复算。</p>
+    <h3 style="margin:18px 0 6px;font-size:16px">或者：把你的情况写信给我（24 小时内回）</h3>
+    <p>如果上面的报告已经解决你的问题，那就到此为止，不用理我。
+    如果是「结论我看到了，但不知道怎么落地」，写信告诉我三件事就够了：</p>
+    <ol style="font-size:14px">
+      <li>你的号大概多少粉、发了多少篇</li>
+      <li>你现在最想解决的一个问题</li>
+      <li>你希望下个月看到什么变化</li>
+    </ol>
+    <p><b>发到 <a href="mailto:ws.kevin@qq.com">ws.kevin@qq.com</a></b>（主题写「诊断」即可），
+    我 24 小时内回。回信里会先问你 1-2 个问题，再给判断。</p>
+    <p class="note">不想留邮箱也行 —— 不想被问问题，可以直接用 GitHub 提 issue：
+    <a href="https://github.com/ttxs69/mpdt/issues">在 GitHub 问问题 / 要人工版 →</a></p>
+  </div>
+
+  <footer>
+    判定内核与 <a href="https://github.com/ttxs69/mpdt">mpdt</a>（公众号后台数据自动化工具）共用同一份代码，
+    所以自助版和服务版的结论不会打架。<br>
+    本页所有逻辑在浏览器本地运行；页面本身不含任何统计代码。
+  </footer>
+</div>
+
+<script>
+/* ===== kernel.js (内联) ===== */
+/* ============================================================
+ * 判定内核 —— 与 Python 侧 mpdt/analysis.py + diagnose.py 保持一致。
+ * 任何一侧改判定口径，另一侧必须同步改（见 anti_patterns AP91）。
+ * 常量：HIT_REC=20（进推荐池阈值，唯一常量源）
+ * ============================================================ */
+const HIT_REC = 20;
+const MID_LO = 3, MID_HI = 20;
+const BLACKOUT_MAX_REC = 3, BLACKOUT_MIN_DAYS = 2;
+const SPIKE_FRACTION = 0.25;
+const FIN_MIN_ROWS = 10, FIN_MIN_DAYS = 7;
+
+
+function median(a){ if(!a.length) return 0; const s=[...a].sort((x,y)=>x-y), m=s.length>>1;
+  return s.length%2 ? s[m] : (s[m-1]+s[m])/2; }
+function pct(a,p){ if(!a.length) return 0; const s=[...a].sort((x,y)=>x-y);
+  return s[Math.max(0, Math.round(p*(s.length-1)))]; }
+
+/* ---------- 标题归类：内容家族 ---------- */
+function stripTail(t){
+  t = t.replace(/[（(]?\s*(?:\d{1,2}月\d{1,2}日|\d{4}-\d{1,2}-\d{1,2}|\d{1,2}-\d{1,2})\s*[）)]?\s*$/,'')
+       .replace(/[（(]?\s*\d+\s*[）)]?\s*$/,'');
+  return t.replace(/^[\s　\-—·|]+|[\s　\-—·|]+$/g,'');
+}
+function titleFamily(title){
+  let t = (title||'').trim();
+  // 与 Python 侧 analysis.py::title_family **完全一致**：
+  // 依次切所有分隔符（不 break），且**不含 '-'**（会切断 'AI-Agent' 这类词）。
+  for (const sep of ['·','｜','|','—',':','：']){ if(t.includes(sep)){ t = t.split(sep)[0].trim(); } }
+  t = t.split('  ')[0].trim();
+  t = stripTail(t);
+  return t ? t.slice(0,18) : '(无标题)';
+}
+
+/* ---------- 家族分组 + 孤峰判定 ---------- */
+function groupRows(rows){
+  const fam = new Map();
+  for (const r of rows){ const k = titleFamily(r.title);
+    if(!fam.has(k)) fam.set(k, []); fam.get(k).push(r); }
+  const out = {};
+  for (const [name, rs] of fam){
+    const recs = rs.map(r=>r.rec||0);
+    const hit = rs.filter(r=>(r.rec||0) >= HIT_REC);
+    const n = rs.length;
+    const spike = hit.length>0 && hit.length <= Math.max(1, n*SPIKE_FRACTION) && Math.max(...recs) >= HIT_REC;
+    const spikeRows = spike ? hit.slice().sort((a,b)=>(b.rec||0)-(a.rec||0)) : [];
+    out[name] = { n, rec_med: median(recs), rec_max: Math.max(...recs),
+      hit_n: hit.length, hit_rate: n? hit.length/n : 0, spike,
+      spike_max: spikeRows.length? (spikeRows[0].rec||0) : 0,
+      spike_titles: spikeRows.map(r=>r.title), read_med: median(rs.map(r=>r.read||0)) };
+  }
+  return out;
+}
+function familyVerdict(rows){
+  const fams = groupRows(rows);
+  const usable = Object.fromEntries(Object.entries(fams).filter(([k,v])=>v.n>=2));
+  const keys = Object.keys(usable);
+  if (keys.length < 2) return {verdict:'NONE', families:fams, usable, actions:[], caveats:[]};
+  const hiKey = keys.reduce((a,b)=> usable[a].rec_med >= usable[b].rec_med ? a : b);
+  const loCands = keys.filter(k=>k!==hiKey);
+  if (!loCands.length) return {verdict:'NONE', families:fams, usable, actions:[], caveats:[]};
+  const loKey = loCands.reduce((a,b)=> usable[a].rec_med <= usable[b].rec_med ? a : b);
+  const hi = usable[hiKey], lo = usable[loKey];
+  const ratio = (hi.rec_med+1)/(lo.rec_med+1);
+  const baseCav = '家族按标题前缀归类，同名系列会合并；样本 <2 篇的家族不参与';
+  if (ratio >= 2.0 && hi.rec_med >= HIT_REC){
+    if (lo.spike){
+      const titles = lo.spike_titles.map(t=> t.length>40 ? t.slice(0,40)+'…' : t).join('；');
+      return {verdict:'FAMILY_SPARK', hi:hiKey, lo:loKey, ratio, families:fams, usable,
+        headline:`「${loKey}」不是"完全吃不到推荐"——${lo.n} 篇里有 ${lo.hit_n} 篇吃到（最高 ${lo.spike_max} 推荐阅读），其余为 0。这是**内容事件**的功劳，不是形态的功劳。`,
+        actions:[`**别停掉这一形态**——它能爆（最高 ${lo.spike_max} 推荐阅读），只是不常爆。`,
+          `把爆过的那 ${lo.hit_n} 篇找出来对比（标题/选题/发布时机），找可复制的变量。${titles?'已知爆款：'+titles:''}`,
+          `「${hiKey}」是主力（${hi.n} 篇，推荐中位 ${hi.rec_med}）——排期给它留位置。`,
+          `「${loKey}」保持现状但降低频率（${lo.n} 篇里只有 ${lo.hit_n} 篇吃到推荐，中位 ${lo.rec_med}）。`],
+        caveats:[baseCav, `「孤峰」判定：该组命中篇数 ≤ 组内篇数/4 且 max ≥ ${HIT_REC}`]};
+    }
+    return {verdict:'FAMILY_SPLIT', hi:hiKey, lo:loKey, ratio, families:fams, usable,
+      headline:`两类内容吃推荐的差距 ${ratio.toFixed(1)} 倍：「${hiKey}」推荐阅读中位 ${hi.rec_med}，「${loKey}」只有 ${lo.rec_med}（${lo.n} 篇全部低于阈值，无孤峰）。`,
+      actions:[`把「${hiKey}」当主力（${hi.n} 篇，推荐阅读中位 ${hi.rec_med}）——下周的排期给它留位置。`,
+        `「${loKey}」先停发或大改（${lo.n} 篇，推荐阅读中位 ${lo.rec_med}，0 篇吃到推荐）。`,
+        `别在这两类之间平均用力——这 ${ratio.toFixed(1)} 倍差距是分发侧的偏好，不是内容质量的连续刻度。`],
+      caveats:[baseCav,'只有「组内无孤峰」才判停发；有孤峰走「家族有孤峰」']};
+  }
+  return {verdict:'NONE', families:fams, usable, actions:[],
+    headline:'家族之间没有 2 倍以上的推荐差异，暂不判优劣。', caveats:[baseCav]};
+}
+
+/* ---------- 断供检测 ---------- */
+function detectBlackout(rows){
+  const byDay = new Map();
+  for (const r of rows){ if(!byDay.has(r.date)) byDay.set(r.date,[]); byDay.get(r.date).push(r.rec||0); }
+  const days = [...byDay.keys()].sort();
+  const blackDays = days.filter(d=> byDay.get(d).length>=2 && Math.max(...byDay.get(d)) < BLACKOUT_MAX_REC);
+  const windows = []; let cur = [];
+  for (const d of days){
+    if (blackDays.includes(d)) cur.push(d);
+    else { if (cur.length >= BLACKOUT_MIN_DAYS) windows.push({from:cur[0],to:cur[cur.length-1],days:cur.length}); cur=[]; }
+  }
+  if (cur.length >= BLACKOUT_MIN_DAYS) windows.push({from:cur[0],to:cur[cur.length-1],days:cur.length});
+  const inWin = new Set();
+  for (const w of windows) for (const d of blackDays) if (d>=w.from && d<=w.to) inWin.add(d);
+  return {windows, black_days:[...inWin].sort(),
+    clean_rows: rows.filter(r=>!inWin.has(r.date)), blackout_rows: rows.filter(r=>inWin.has(r.date))};
+}
+
+/* ---------- 主判定 ---------- */
+function analyse(rows){
+  const n = rows.length;
+  const days = new Set(rows.map(r=>r.date)).size;
+  const reads = rows.map(r=>r.read||0), recs = rows.map(r=>r.rec||0), msgs = rows.map(r=>r.msg||0);
+  const fins = rows.filter(r=>typeof r.fin === 'number' && !isNaN(r.fin)).map(r=>r.fin);
+  const hitN = recs.filter(v=>v>=HIT_REC).length;
+  const midN = recs.filter(v=>v>=MID_LO && v<HIT_REC).length;
+  const totRead = reads.reduce((a,b)=>a+b,0), totRec = recs.reduce((a,b)=>a+b,0), totMsg = msgs.reduce((a,b)=>a+b,0);
+  const bo = detectBlackout(rows);
+  const clean = bo.clean_rows;
+  const cRecs = clean.map(r=>r.rec||0);
+  const cHit = cRecs.filter(v=>v>=HIT_REC).length;
+  const fam = familyVerdict(rows);
+  const groups = groupByHit(rows);
+  return { n, days, read_med: median(reads), read_p90: pct(reads,0.9),
+    rec_share: totRead? totRec/totRead : 0, msg_share: totRead? totMsg/totRead : 0,
+    hit_n: hitN, hit_rate: n? hitN/n : 0, mid_n: midN, mid: n? midN/n : 0,
+    fin_med: fins.length? median(fins) : null, fin_n: fins.length,
+    blackout: {windows: bo.windows, n_black: bo.blackout_rows.length, n_clean: clean.length},
+    hit_rate_clean: clean.length? cHit/clean.length : (n? hitN/n:0), hit_n_clean: cHit,
+    groups, family: fam };
+}
+function groupByHit(rows){
+  const hit = rows.filter(r=>(r.rec||0)>=HIT_REC), miss = rows.filter(r=>(r.rec||0)<HIT_REC);
+  const stat = rs => ({ n: rs.length, read_med: median(rs.map(r=>r.read||0)),
+    rec_med: median(rs.map(r=>r.rec||0)), msg_med: median(rs.map(r=>r.msg||0)),
+    fin_med: (()=>{ const f=rs.filter(r=>typeof r.fin==='number').map(r=>r.fin); return f.length?median(f):null; })() });
+  return { hit: stat(hit), miss: stat(miss) };
+}
+function branch(m){
+  const hr = m.hit_rate_clean, mid = m.mid;
+  if (m.rec_share < 0.20) return {code:'STOCK_ONLY', label:'消息为主型'};
+  if (mid > 0.30 && hr < 0.40) return {code:'MID_BAND', label:'中间带型'};
+  if (hr < 0.40) return {code:'LOTTERY_STRUCTURE', label:'抽签结构型'};
+  return {code:'MIXED', label:'混合型'};
+}
+function confidenceNote(days, n){
+  if (days>=21 && n>=40) return `（窗口 ${days} 天 / ${n} 篇：结构结论可信，可用于季度排期。）`;
+  if (days>=14 && n>=20) return `（窗口 ${days} 天 / ${n} 篇：结构结论可信，可用于月度排期。）`;
+  return `（窗口仅 ${days} 天 / ${n} 篇：以下结论**只用于本周排期**，别当成长期结构。建议再导出 1 个月的数据复跑一次确认。）`;
+}
+
+/* ============================================================
+ * 解析：CSV + XLSX（零依赖，用浏览器 DecompressionStream 解 zip）
+ * ============================================================ */
+function parseCSV(text){
+  const rows=[]; let row=[], cell='', q=false;
+  for (let i=0;i<text.length;i++){
+    const c=text[i];
+    if (q){
+      if (c==='"'){ if(text[i+1]==='"'){ cell+='"'; i++; } else q=false; }
+      else cell+=c;
+    } else {
+      if (c==='"') q=true;
+      else if (c===','){ row.push(cell); cell=''; }
+      else if (c==='\n'){ row.push(cell); rows.push(row); row=[]; cell=''; }
+      else if (c==='\r'){}
+      else cell+=c;
+    }
+  }
+  if (cell.length||row.length){ row.push(cell); rows.push(row); }
+  return rows;
+}
+async function unzip(buf){
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  // 找 End of Central Directory
+  let eocd=-1;
+  for (let i=u8.length-22; i>=Math.max(0,u8.length-66000); i--){
+    if (dv.getUint32(i,true)===0x06054b50){ eocd=i; break; }
+  }
+  if (eocd<0) throw new Error('不是有效的 xlsx（找不到 zip 结尾）');
+  const count = dv.getUint16(eocd+10,true);
+  let off = dv.getUint32(eocd+16,true);
+  const files = {};
+  for (let i=0;i<count;i++){
+    if (dv.getUint32(off,true)!==0x02014b50) break;
+    const method = dv.getUint16(off+10,true);
+    const compSize = dv.getUint32(off+20,true);
+    const nameLen = dv.getUint16(off+28,true);
+    const extraLen = dv.getUint16(off+30,true);
+    const cmtLen = dv.getUint16(off+32,true);
+    const localOff = dv.getUint32(off+42,true);
+    const name = new TextDecoder().decode(u8.subarray(off+46, off+46+nameLen));
+    // 本地头
+    const lNameLen = dv.getUint16(localOff+26,true);
+    const lExtraLen = dv.getUint16(localOff+28,true);
+    const dataStart = localOff + 30 + lNameLen + lExtraLen;
+    const raw = u8.subarray(dataStart, dataStart+compSize);
+    files[name] = {method, raw};
+    off += 46 + nameLen + extraLen + cmtLen;
+  }
+  const out = {};
+  for (const [name, f] of Object.entries(files)){
+    if (f.method === 0) out[name] = f.raw;
+    else if (f.method === 8){
+      const ds = new DecompressionStream('deflate-raw');
+      const stream = new Blob([f.raw]).stream().pipeThrough(ds);
+      out[name] = new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+  }
+  return out;
+}
+function xmlDecode(s){
+  // 防御：自闭合单元格（如 <c r="A1"/>）的 body 是 undefined
+  return String(s ?? '').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"')
+          .replace(/&apos;/g,"'").replace(/&amp;/g,'&');
+}
+function parseXMLText(xml, tag){
+  // **不要用 match + /g**：`String.match` 传全局正则时返回**全部匹配**，
+  // `m[1]` 会是 undefined（只有一个匹配时）⇒ 所有 <v> 数值单元格读成空
+  // ⇒ 真实 Excel 导出的数字列（阅读人数/推荐）全部丢失。
+  // 必须用 exec + 非全局正则。
+  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`);
+  const m = re.exec(xml || ''); return m ? m[1] : '';
+}
+async function readXlsx(buf){
+  const files = await unzip(buf);
+  const dec = new TextDecoder();
+  // sharedStrings
+  let shared = [];
+  if (files['xl/sharedStrings.xml']){
+    const sxml = dec.decode(files['xl/sharedStrings.xml']);
+    const siRe = /<si>([\s\S]*?)<\/si>/g; let m;
+    while ((m = siRe.exec(sxml))){
+      const tRe = /<t[^>]*>([\s\S]*?)<\/t>/g; let t, s='';
+      while ((t = tRe.exec(m[1]))) s += t[1];
+      shared.push(xmlDecode(s));
+    }
+  }
+  // sheet1
+  let sheetName = Object.keys(files).find(k=>/^xl\/worksheets\/sheet1\.xml$/.test(k))
+              || Object.keys(files).find(k=>/^xl\/worksheets\/.*\.xml$/.test(k));
+  if (!sheetName) throw new Error('xlsx 里没找到工作表');
+  const xml = dec.decode(files[sheetName]);
+  const rows = [];
+  const rowRe = /<row[^>]*>([\s\S]*?)<\/row>/g; let rm;
+  while ((rm = rowRe.exec(xml))){
+    const cells = []; const cRe = /<c([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g; let cm;
+    while ((cm = cRe.exec(rm[1]))){
+      const attrs = cm[1]||'', body = cm[2]||'';
+      const ref = (attrs.match(/r="([A-Z]+)\d+"/)||[])[1] || '';
+      let col = 0;
+      for (const ch of ref){ col = col*26 + (ch.charCodeAt(0)-64); }
+      col = Math.max(0, col-1);
+      const t = (attrs.match(/t="([^"]+)"/)||[])[1];
+      let val = '';
+      if (t === 'inlineStr'){ const tRe=/<t[^>]*>([\s\S]*?)<\/t>/g; let x; while((x=tRe.exec(body))) val += x[1]; }
+      else if (t === 's'){ const v = parseXMLText(body,'v'); val = shared[parseInt(v)||0] ?? ''; }
+      else { const v = parseXMLText(body,'v'); val = v; }
+      cells[col] = xmlDecode(val);
+    }
+    rows.push(cells);
+  }
+  return rows;
+}
+
+/* ---------- 表头识别 + 列映射（与 Python 侧一致） ---------- */
+const COLS = {
+  date:  ['日期','发布时间','发表时间','发表日','推送时间'],
+  title: ['标题','内容标题','文章标题','题目'],
+  read:  ['阅读人数','阅读量','阅读次数','总阅读','送达人数'],
+  rec:   ['推荐','推荐阅读','推荐来源'],
+  msg:   ['公众号消息','消息','会话来源'],
+  fin:   ['完读率','阅读完成率','完成率'],
+};
+const BAD = ['推荐位','推荐语','推荐类型','推荐设置'];
+// 与 Python 侧 xlsx_to_input.py::_clean 保持一致：
+// **只 strip，不删内部空格**（早期版本删空格导致标题变成「rea登顶GHTrending」，
+// 与 Python 侧家族名不一致 ⇒ 同一号两条路径结论不同 = AP91 分叉）。
+// 全角空格 → 半角（Python 侧同样处理）。
+function clean(c){ return String(c??'').replace(/\u3000/g,' ').trim(); }
+function findHeader(rows){
+  for (let i=0;i<Math.min(10,rows.length);i++){
+    const cs = rows[i].map(clean);
+    if (cs.some(c=>c.includes('日期')||c.includes('时间')) &&
+        cs.some(c=>c.includes('阅读')||c.includes('标题'))) return i;
+  }
+  return null;
+}
+function mapColumns(header){
+  const map = {};
+  for (const [k, aliases] of Object.entries(COLS)){
+    for (let i=0;i<header.length;i++){
+      const c = clean(header[i]); if (!c) continue;
+      if (BAD.some(b=>c.includes(b))) continue;
+      if (aliases.some(a=>c===a || c.includes(a))){ if(!(k in map)) map[k]=i; break; }
+    }
+  }
+  return map;
+}
+function parseNumber(s){
+  if (s===null||s===undefined) return null;
+  let t = String(s).replace(/[,\s，]/g,'').replace(/%$/,'');
+  if (t===''||t==='-'||t==='—') return null;
+  const v = parseFloat(t);
+  return isNaN(v) ? null : v;
+}
+function convert(rows){
+  const hi = findHeader(rows);
+  if (hi===null) throw new Error('前 10 行里找不到表头（需要含「日期」和「标题/阅读」的列）。是不是导错了文件？');
+  const header = rows[hi]||[];
+  const map = mapColumns(header);
+  const missing = ['date','read','rec','msg'].filter(k=>!(k in map));
+  if (missing.length) throw new Error(
+    `缺关键列 ${missing.join('、')}。\n识别到的表头：${header.map(clean).filter(Boolean).slice(0,12).join(' | ')}\n` +
+    `需要：日期 / 标题 / 阅读人数 / 推荐 / 公众号消息。\n` +
+    `注意：只导「已通知内容」列表往往没有分渠道数据，要导「已发表内容」的明细表。`);
+  const arts=[], skipped=[];
+  for (let r=hi+1;r<rows.length;r++){
+    const row = rows[r]||[];
+    if (!row.some(c=>clean(c))) continue;
+    const g = k => (map[k]!==undefined && map[k]<row.length) ? clean(row[map[k]]) : '';
+    const title = g('title') || '(无标题)';
+    const read = parseNumber(g('read'));
+    const rec = parseNumber(g('rec')) || 0;
+    const msg = parseNumber(g('msg')) || 0;
+    if (read===null || read<=0){ skipped.push({title:title.slice(0,40), reason:'阅读人数缺失或 ≤0'}); continue; }
+    if (rec+msg > read+1e-9){
+      skipped.push({title:title.slice(0,40),
+        reason:`推荐+消息(${Math.round(rec+msg)}) > 总阅读(${Math.round(read)})：这一行的渠道列口径与总读不一致`});
+      continue;
+    }
+    const a = {date:g('date'), title, read, rec, msg};
+    const fin = parseNumber(g('fin'));
+    if (fin!==null) a.fin = fin>1 ? fin/100 : fin;
+    arts.push(a);
+  }
+  return {arts, skipped, mapping: Object.fromEntries(Object.entries(map).map(([k,v])=>[k, clean(header[v])]))};
+}
+/* 导出：浏览器挂 window，node 用 module.exports */
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { HIT_REC, MID_LO, MID_HI, BLACKOUT_MAX_REC, BLACKOUT_MIN_DAYS,
+    SPIKE_FRACTION, median, pct, stripTail, titleFamily, groupRows, familyVerdict,
+    detectBlackout, analyse, groupByHit, branch, confidenceNote,
+    parseCSV, unzip, xmlDecode, parseXMLText, readXlsx, clean, findHeader,
+    mapColumns, parseNumber, convert };
+}
+
+/* ===== app.js (内联) ===== */
+"use strict";
+/* DOM 辅助（原先在 kernel.js 里，拆分时漏带 ⇒ $ undefined） */
+const $ = s => document.querySelector(s);
+const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c;
+                             if (txt !== undefined) e.textContent = txt; return e; };
+
+/* ============================================================
+ * 渲染
+ * ============================================================ */
+function render(m, skipped, mapping){
+  const out = $('#out'); out.classList.remove('hide');
+  const br = branch(m);
+  const box = el('div');
+  box.appendChild(el('h2', null, '结论'));
+  const head = el('div','card');
+  head.innerHTML = `<div class="big">${br.label} <span class="tag t-acc">${br.code}</span></div>
+    <div class="note" style="margin-top:6px">${confidenceNote(m.days, m.n)}</div>`;
+  box.appendChild(head);
+
+  // 一、三个数
+  const c1 = el('div','card');
+  c1.innerHTML = `<h3 style="margin:0 0 8px;font-size:16px">一、三个数</h3>
+    <table>
+      <tr><td>阅读中位</td><td class="num"><b>${m.read_med}</b></td><td class="num note">p90 ${m.read_p90}</td></tr>
+      <tr><td>推荐占全部阅读</td><td class="num"><b>${(m.rec_share*100).toFixed(0)}%</b></td><td class="num note">公众号消息 ${(m.msg_share*100).toFixed(0)}%</td></tr>
+      <tr><td>进推荐池</td><td class="num"><b>${m.hit_n}/${m.n} = ${(m.hit_rate*100).toFixed(0)}%</b></td><td class="num note">剔除断供窗后 ${m.hit_n_clean}/${m.blackout.n_clean} = ${(m.hit_rate_clean*100).toFixed(0)}%</td></tr>
+      <tr><td>中间带</td><td class="num"><b>${m.mid_n}/${m.n} = ${(m.mid*100).toFixed(0)}%</b></td><td class="num note">推荐阅读 ${MID_LO}–${HIT_REC-1}</td></tr>
+      ${m.fin_n? `<tr><td>完读率中位</td><td class="num"><b>${(m.fin_med*100).toFixed(1)}%</b></td><td class="num note">n=${m.fin_n}</td></tr>`:''}
+    </table>`;
+  box.appendChild(c1);
+
+  // 零、断供
+  const c0 = el('div','card');
+  const bo = m.blackout;
+  if (bo.windows.length){
+    c0.innerHTML = `<h3 style="margin:0 0 8px;font-size:16px">二、先看有没有断供 <span class="tag t-warn">有</span></h3>` +
+      bo.windows.map(w=>`<div>• 检测到断供窗 <b>${w.from} ~ ${w.to}</b>（${w.days} 天）：该窗口内每天 ≥2 篇发布，但推荐阅读全部 &lt;${BLACKOUT_MAX_REC}。</div>`).join('') +
+      `<div style="margin-top:8px">这说明期间是<b>分发中断</b>，不是内容变差。以下所有结构判断都已<b>剔除断供期</b>（剔除 ${bo.n_black} 篇，剩 ${bo.n_clean} 篇可比样本）——否则会把中断期算成你的常态。</div>`;
+  } else {
+    c0.innerHTML = `<h3 style="margin:0 0 8px;font-size:16px">二、先看有没有断供 <span class="tag t-ok">无</span></h3>
+      <div class="note">未检测到断供窗（没有出现「整天 ≥2 篇且推荐全 &lt;${BLACKOUT_MAX_REC}」的连续日期），各期可直接比较。</div>`;
+  }
+  box.appendChild(c0);
+
+  // 三、内容系列（核心）
+  const fam = m.family;
+  const c3 = el('div','card');
+  if (fam.verdict==='FAMILY_SPARK' || fam.verdict==='FAMILY_SPLIT'){
+    c3.innerHTML = `<h3 style="margin:0 0 8px;font-size:16px">三、内容系列：哪条值得继续做，哪条该停
+      <span class="tag ${fam.verdict==='FAMILY_SPARK'?'t-warn':'t-bad'}">${fam.verdict==='FAMILY_SPARK'?'家族有孤峰':'家族分化'}</span></h3>
+      <div>${fam.headline}</div>
+      <div style="margin-top:10px"><b>具体动作</b></div>
+      <ol>${fam.actions.map(a=>`<li>${a}</li>`).join('')}</ol>
+      <div class="note" style="margin-top:8px">⚠ ${fam.caveats.join('；')}</div>`;
+  } else {
+    c3.innerHTML = `<h3 style="margin:0 0 8px;font-size:16px">三、内容系列</h3>
+      <div class="note">${fam.headline||'样本还不够做系列级判断（每个系列至少 2 篇、且两个系列之间要有 2 倍以上差距）。把导出时间拉长到 1–2 个月再跑一次。'}</div>`;
+  }
+  box.appendChild(c3);
+
+  // 四、吃到 vs 没吃到
+  const g = m.groups;
+  const c4 = el('div','card');
+  c4.innerHTML = `<h3 style="margin:0 0 8px;font-size:16px">四、吃到推荐的和没吃到的，差在哪</h3>
+    <table><tr><th>分组</th><th class="num">n</th><th class="num">阅读中位</th><th class="num">推荐中位</th><th class="num">消息中位</th><th class="num">完读中位</th></tr>
+    <tr><td>吃到推荐</td><td class="num">${g.hit.n}</td><td class="num">${g.hit.read_med}</td><td class="num">${g.hit.rec_med}</td><td class="num">${g.hit.msg_med}</td><td class="num">${g.hit.fin_med!==null?(g.hit.fin_med*100).toFixed(1)+'%':'—'}</td></tr>
+    <tr><td>没吃到推荐</td><td class="num">${g.miss.n}</td><td class="num">${g.miss.read_med}</td><td class="num">${g.miss.rec_med}</td><td class="num">${g.miss.msg_med}</td><td class="num">${g.miss.fin_med!==null?(g.miss.fin_med*100).toFixed(1)+'%':'—'}</td></tr>
+    </table>
+    <div class="note">吃到的组在阅读中位上高 ${(g.hit.read_med-g.miss.read_med).toFixed(0)}，
+    消息渠道中位差 ${(g.hit.msg_med-g.miss.msg_med).toFixed(0)} ——
+    ${g.hit.msg_med < g.miss.msg_med ? '说明差距不是粉丝打开造成的。' : '消息渠道没差多少，差距在分发侧。'}</div>`;
+  box.appendChild(c4);
+
+  // 五、逐篇定位
+  const byRec = [...m.rows].sort((a,b)=>(b.rec||0)-(a.rec||0)).slice(0,3);
+  const byRead = [...m.rows].sort((a,b)=>(a.read||0)-(b.read||0)).slice(0,5);
+  const c5 = el('div','card');
+  c5.innerHTML = `<h3 style="margin:0 0 8px;font-size:16px">五、逐篇定位</h3>
+    <div class="note">推荐最高的 3 篇（结构可复用）</div>
+    <table><tr><th>日期</th><th>标题</th><th class="num">阅读</th><th class="num">推荐</th><th class="num">消息</th></tr>
+    ${byRec.map(r=>`<tr><td>${r.date}</td><td>${r.title}</td><td class="num">${r.read}</td><td class="num">${r.rec}</td><td class="num">${r.msg}</td></tr>`).join('')}</table>
+    <div class="note" style="margin-top:10px">阅读最低的 5 篇（量丢在这里）</div>
+    <table><tr><th>日期</th><th>标题</th><th class="num">阅读</th><th class="num">推荐</th><th class="num">消息</th></tr>
+    ${byRead.map(r=>`<tr><td>${r.date}</td><td>${r.title}</td><td class="num">${r.read}</td><td class="num">${r.rec}</td><td class="num">${r.msg}</td></tr>`).join('')}</table>`;
+  box.appendChild(c5);
+
+  // 数据完整性
+  if (skipped && skipped.length){
+    const cs = el('div','card');
+    cs.innerHTML = `<h3 style="margin:0 0 8px;font-size:16px">六、数据完整性说明 <span class="tag t-warn">${skipped.length} 行未进分析</span></h3>
+      <div>你发来的表格里有 ${skipped.length} 行没能进入分析，原因如下（不影响上面结论的成立，但你应该知道哪些内容没被算进去）：</div>
+      <ul>${skipped.slice(0,10).map(s=>`<li><b>${s.title}</b> —— ${s.reason}</li>`).join('')}</ul>`;
+    box.appendChild(cs);
+  }
+
+  box.appendChild(el('div','note',
+    `列映射：${Object.entries(mapping).map(([k,v])=>`${k}←${v}`).join('，')}`));
+
+  out.innerHTML = ''; out.appendChild(box);
+  $('#cta').style.display = 'block';
+}
+
+/* ============================================================
+ * 文件处理
+ * ============================================================ */
+async function handleFile(file){
+  const err = $('#err'); err.classList.add('hide');
+  try{
+    let rows;
+    const nm = file.name.toLowerCase();
+    if (nm.endsWith('.csv')){
+      rows = parseCSV(await file.text());
+    } else {
+      rows = await readXlsx(await file.arrayBuffer());
+    }
+    const {arts, skipped, mapping} = convert(rows);
+    if (!arts.length) throw new Error('一行有效数据都没有 —— 表头可能不对，或读数列是空的。');
+    if (arts.length < FIN_MIN_ROWS) throw new Error(
+      `有效数据只有 ${arts.length} 篇（<${FIN_MIN_ROWS}），样本不够给结论。请把导出范围拉长（至少 10 篇、覆盖 7 个发布日）。`);
+    const days = new Set(arts.map(a=>a.date)).size;
+    if (days < FIN_MIN_DAYS) throw new Error(
+      `覆盖天数 ${days} < ${FIN_MIN_DAYS}，窗口太短不可判。请把导出时间范围拉长到至少 1 个完整自然周。`);
+    const m = analyse(arts);
+    m.rows = arts;
+    render(m, skipped, mapping);
+  } catch(e){
+    err.textContent = '出错了：' + (e && e.message ? e.message : e);
+    err.classList.remove('hide');
+    $('#out').classList.add('hide');
+  }
+}
+const drop = $('#drop'), fileInput = $('#file');
+drop.addEventListener('click', ()=>fileInput.click());
+$('#pick').addEventListener('click', e=>{ e.stopPropagation(); fileInput.click(); });
+fileInput.addEventListener('change', e=>{ if (e.target.files[0]) handleFile(e.target.files[0]); });
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('hot'); }));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.remove('hot'); }));
+drop.addEventListener('drop', e=>{ const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
+</script>
+</body>
+</html>

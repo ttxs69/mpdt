@@ -71,7 +71,8 @@ class ReportBase(unittest.TestCase):
             store.upsert(self.con, 'datacube_article', '2026-10-1%d' % (2 + i), am, 1,
                          '文章' + am, {'refdate': '2026-10-1%d' % (2 + i),
                                         'finish_read_rate': fr, 'read_rate': 0.5,
-                                        'total_pv': 100 + i, 'total_share': 3})
+                                        'total_pv': 100 + i, 'total_share': 3,
+                                        'total_read_finish': 0 if fr == 0.10 else 10})
         store.upsert(self.con, 'article_detail', '2026-10-17', 'mA', 1, '文章mA',
                      _detail_metrics(190, 0.25))
         store.upsert(self.con, 'article_detail', '2026-10-16', 'mB', 1, '文章mB',
@@ -280,6 +281,7 @@ class TestGenerate(ReportBase):
         out = report.generate(self.con, '2026-W42', self.out_dir)
         self.assertTrue(out['md'].endswith('weekly-2026-W42.md'))
         self.assertTrue(out['html'].endswith('weekly-2026-W42.html'))
+        # R238：rows = 本周发表的文章数（两源并集按标题去重：mA/mB/mC）
         self.assertEqual(out['rows'], 3)
         self.assertTrue(os.path.exists(out['md']) and os.path.exists(out['html']))
 
@@ -289,9 +291,9 @@ class TestGenerate(ReportBase):
         self.assertIn('口径说明', md)
         self.assertIn('按概念分组', md)
         self.assertIn('2026-10-12 ~ 2026-10-18', md)
-        # Top10 按完读率降序：mB(0.40) > mC(0.25) > mA(0.10)
-        self.assertLess(md.index('文章mB'), md.index('文章mC'))
-        self.assertLess(md.index('文章mC'), md.index('文章mA'))
+        # R238：Top 表改用 article_detail（ad30 口径，含渠道构成）：mB(0.31) > mA(0.25)
+        # mC 只有 datacube 源，且 ad30 优先去重后仍应出现
+        self.assertLess(md.index('文章mB'), md.index('文章mA'))
         # 单篇渠道构成段
         self.assertIn('单篇渠道构成', md)
         self.assertIn('45.0', md)
@@ -379,6 +381,7 @@ class TestGenerate(ReportBase):
                      {'finish_read_rate': 0.99, 'total_pv': 1})
         self.con.commit()
         out = report.generate(self.con, '2026-W42', self.out_dir)
+        # R238：rows = 本周发表的文章数（两源并集按标题去重：mA/mB/mC）
         self.assertEqual(out['rows'], 3)
         md = open(out['md']).read()
         self.assertNotIn('mX', md)
@@ -452,7 +455,113 @@ class TestFoldingBehavior(unittest.TestCase):
         self.assertEqual(out['concepts_empty'], [])
 
 
+class TestFakePerfectFinishRate(unittest.TestCase):
+    """R237：微信在「无人读完」时把 finish_read_rate 返回 1（100%）而不是空值。
+
+    客户看到「完读率 100%」会立刻质疑，而那是分母为 0。必须排除出 Top 排名。
+    """
+
+    def _run(self, rows):
+        tmpdir = tempfile.mkdtemp()
+        con = store.connect(os.path.join(tmpdir, 't.sqlite3'))
+        for (sd, am, fr, tf) in rows:
+            store.upsert(con, 'datacube_article', sd, am, 1, '文章' + am,
+                         {'refdate': sd.replace('-', ''), 'finish_read_rate': fr, 'read_rate': 0.5,
+                          'total_pv': 30, 'total_share': 0, 'total_read_finish': tf})
+        with tempfile.TemporaryDirectory() as d:
+            out = report.generate(con, '2026-W43', d)
+            md = open(out['md'], encoding='utf-8').read()
+        return md
+
+    def test_fake_100pct_excluded_from_top(self):
+        md = self._run([
+            ('2026-10-20', 'fake', 1.0, 0),      # 分母 0 的伪 100%
+            ('2026-10-20', 'real', 0.42, 12),    # 真实 42%
+        ])
+        self.assertNotIn('文章fake', md.split('## 跨 series')[0])
+        self.assertIn('文章real', md.split('## 跨 series')[0])
+        self.assertIn('伪 100%', md)
+
+    def test_note_reports_count(self):
+        md = self._run([('2026-10-20', 'fake', 1.0, 0), ('2026-10-20', 'real', 0.42, 12)])
+        self.assertIn('已排除 1 篇', md)
+
+    def test_real_100pct_kept_when_finish_count_nonzero(self):
+        # 分母不为 0 的真 100%（真的每人都读完）必须保留
+        md = self._run([('2026-10-20', 'perfect', 1.0, 9), ('2026-10-20', 'normal', 0.42, 12)])
+        top = md.split('## 跨 series')[0]
+        self.assertIn('文章perfect', top)
+        self.assertNotIn('已排除', md)
+
+    def test_no_fake_no_note(self):
+        md = self._run([('2026-10-20', 'a', 0.42, 12), ('2026-10-20', 'b', 0.30, 9)])
+        self.assertNotIn('伪 100%', md)
+
+
+class TestWeekSemanticsIsPublishDateNotFetchDate(unittest.TestCase):
+    """R238 核心回归：周的语义 = 本周**发表**的文章，不是本周**抓到**的快照。
+
+    真实事故：W43(10-19~10-25) 周报按 stat_date（抓取日）筛，
+    datacube 命中 5 行里发表日在窗口内的 **0 行** —— 全是上周文章在今天被补抓。
+    客户拿到会立刻问「这都是上周的文章吧」。
+    """
+
+    def _mk(self):
+        tmp = tempfile.mkdtemp()
+        return store.connect(os.path.join(tmp, 't.sqlite3'))
+
+    def test_article_published_in_week_but_fetched_later_is_included(self):
+        con = self._mk()
+        # 10-20 发表，但 10-22 才补抓 → 必须进 W43
+        store.upsert(con, 'article_detail', '2026-10-22', 'p1', 1, '本周发的',
+                     {'publish_date': '2026-10-20', 'read_uv': 50,
+                      'finished_read_pv_ratio': 0.30, 'avg_article_read_time': 20})
+        con.commit()
+        with tempfile.TemporaryDirectory() as d:
+            md = open(report.generate(con, '2026-W43', d)['md'], encoding='utf-8').read()
+        self.assertIn('本周发的', md)
+        self.assertIn('**本周发表的文章**：**1** 篇', md)
+
+    def test_article_published_last_week_fetched_this_week_is_excluded(self):
+        con = self._mk()
+        # 10-15 发表，本周（10-19~10-25）补抓 → 不该出现在 W43
+        store.upsert(con, 'article_detail', '2026-10-20', 'p2', 1, '上周发的',
+                     {'publish_date': '2026-10-15', 'read_uv': 50,
+                      'finished_read_pv_ratio': 0.99, 'avg_article_read_time': 20})
+        con.commit()
+        with tempfile.TemporaryDirectory() as d:
+            md = open(report.generate(con, '2026-W43', d)['md'], encoding='utf-8').read()
+        self.assertNotIn('上周发的', md)
+        self.assertIn('**本周发表的文章**：**0** 篇', md)
+
+    def test_daily_snapshots_dedupe_to_one_article(self):
+        con = self._mk()
+        for sd in ('2026-10-20', '2026-10-21', '2026-10-22'):
+            store.upsert(con, 'article_detail', sd, 'p3', 1, '同一篇',
+                         {'publish_date': '2026-10-19', 'read_uv': 60,
+                          'finished_read_pv_ratio': 0.25, 'avg_article_read_time': 15})
+        con.commit()
+        with tempfile.TemporaryDirectory() as d:
+            md = open(report.generate(con, '2026-W43', d)['md'], encoding='utf-8').read()
+        self.assertIn('**本周发表的文章**：**1** 篇', md)
+        # Top 表里同一篇只能出现一次
+        top = md.split('## 完读率 Top')[1].split('## 跨 series')[0]
+        self.assertEqual(top.count('同一篇'), 1)
+
+    def test_no_publish_date_falls_back_to_fetch_date(self):
+        con = self._mk()
+        # 无 publish_date / refdate 的老快照 → 按 stat_date 兜底，不丢数据
+        store.upsert(con, 'article_detail', '2026-10-20', 'p4', 1, '老数据',
+                     {'read_uv': 10, 'finished_read_pv_ratio': 0.2})
+        con.commit()
+        with tempfile.TemporaryDirectory() as d:
+            md = open(report.generate(con, '2026-W43', d)['md'], encoding='utf-8').read()
+        self.assertIn('老数据', md)
+
+
 if __name__ == '__main__':
+
+
     unittest.main()
 
 

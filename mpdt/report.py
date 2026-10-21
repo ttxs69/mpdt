@@ -13,6 +13,7 @@ import os
 from itertools import combinations
 
 from . import metrics as metrics_mod
+from . import advice as advice_mod
 from .metrics import calibration_note, auto_pairs
 
 
@@ -187,7 +188,42 @@ def _fmt_value(v, is_ratio):
     return str(int(v)) if float(v).is_integer() else ('%.1f' % v)
 
 
-def _wide_rows_for_concept(con, cname):
+def _week_article_keys(con, b, e):
+    """本周**发表**的文章 key 集合 {(appmsgid, itemidx)}。
+
+    R238：宽表（跨 series 对照）原来取全库最新快照 ⇒ 混进两周前的文章。
+    现在按每篇文章自己的发表日过滤。
+    发表日来源：ad30 用 publish_date；dc7 用 refdate(20261007 或 2026-10-07)；pl 用 publish_date。
+    """
+    def _pd(m):
+        v = m.get('publish_date')
+        if v and len(str(v)) >= 10:
+            return str(v)[:10]
+        r = m.get('refdate')
+        if r:
+            rs = str(r).strip()
+            if len(rs) == 8 and rs.isdigit():
+                return f"{rs[:4]}-{rs[4:6]}-{rs[6:8]}"
+            if len(rs) >= 10:
+                return rs[:10]
+        return None
+
+    keys = set()
+    for src, am, ix, sd, m in con.execute(
+            "SELECT source, appmsgid, itemidx, stat_date, metrics FROM snapshots").fetchall():
+        dm = json.loads(m)
+        pd = _pd(dm)
+        if pd:
+            hit = b <= pd <= e
+        else:
+            # 无发表日字段的老数据：按抓取日兜底，不丢数据
+            hit = b <= sd <= e
+        if hit:
+            keys.add((str(am), int(ix)))
+    return keys
+
+
+def _wide_rows_for_concept(con, cname, week_keys=None):
     """生成某概念一张宽表 → {header, rows, has_data, all_zero, missing_sources}。
 
     列 = [文章, appmsgid_itemidx, s1 值, s2 值, …, 差值说明列?]
@@ -207,6 +243,8 @@ def _wide_rows_for_concept(con, cname):
     keys_union = set()
     for src_map in by_source.values():
         keys_union.update(src_map)
+    if week_keys is not None:
+        keys_union = {k for k in keys_union if k in week_keys}
     rows = []
     any_nonzero = False
     for key in sorted(keys_union):
@@ -279,7 +317,7 @@ def _wide_rows_for_concept(con, cname):
             'no_intersect': (not has_any_intersect) and bool(keys_union) and not missing_src and not missing_field}
 
 
-def cross_source_table(con, concept: str = None) -> list:
+def cross_source_table(con, concept: str = None, week_keys=None) -> list:
     """跨 series 对照（宽表）：每概念一张宽表。
 
     返回 list of {concept, display, header, rows, note, has_data, all_zero,
@@ -294,7 +332,7 @@ def cross_source_table(con, concept: str = None) -> list:
             continue   # 单 series 概念不生成跨 series 对照
         if concept and concept not in (cname, c['display']):
             continue
-        wide = _wide_rows_for_concept(con, cname)
+        wide = _wide_rows_for_concept(con, cname, week_keys)
         # 概念级不可比说明（用 auto_pairs 的同概念条目）
         parts = []
         for a, b in combinations([k for k, _ in non_dep], 2):
@@ -322,37 +360,161 @@ def cross_source_table(con, concept: str = None) -> list:
 def generate(con, iso_week: str, out_dir: str) -> dict:
     monday, sunday = _week_bounds(iso_week)
     b, e = monday.strftime('%Y-%m-%d'), sunday.strftime('%Y-%m-%d')
+    # R238：周的语义 = **本周发表的文章**，不是「本周抓到的快照」。
+    # 旧实现按 stat_date（抓取日）筛：补抓历史会把上周文章塞进本周周报。
+    # 实测 W43(10-19~10-25)：datacube 命中 5 行里，发表日在窗口内的 **0 行**；
+    # article_detail 48 行里发表日在窗口内的只有 13 行。
+    # 客户拿到这种周报第一反应是「这都是上周的文章吧」⇒ 判定口径错，不是数据少。
+    # 修法：SQL 拿窗口内所有快照，Python 侧按文章自己的发表日过滤。
     rows = con.execute(
         "SELECT stat_date, title, metrics FROM snapshots WHERE source='datacube_article' "
-        "AND stat_date BETWEEN ? AND ? ORDER BY stat_date", (b, e)).fetchall()
-    arts = [(sd, ti, json.loads(m)) for sd, ti, m in rows]
-    # 完读率 Top10（取 datacube 7 天完读率）
-    by_key = {}
+        "ORDER BY stat_date").fetchall()
+    # R237：周报主表改用 article_detail 源，不用 datacube_article。
+    # 实测本号：datacube_article 只有 17 行、覆盖 3 天，article_detail 有 87 行、每天 11-20 篇。
+    # datacube 是「文章级 7 天窗口」，采集频率低（T+1 且不追历史）⇒ 周报只剩 4-5 篇，
+    # 客户一看就问「我一周发 20 篇，怎么只统计了 4 篇」。
+    # article_detail 有 read_uv + 渠道构成（推荐/公众号消息/搜一搜）—— 客户真正要看的在这。
+    detail_rows = con.execute(
+        "SELECT stat_date, title, metrics FROM snapshots WHERE source='article_detail' "
+        "ORDER BY stat_date").fetchall()
+    def _pub_date(m):
+        """取文章自己的发表日：datacube 用 refdate(20261007 或 2026-10-07)，article_detail 用 publish_date。"""
+        pd = m.get('publish_date')
+        if pd and len(str(pd)) >= 10:
+            return str(pd)[:10]
+        rd = m.get('refdate')
+        if rd:
+            r = str(rd).strip()
+            if len(r) == 8 and r.isdigit():
+                return f"{r[:4]}-{r[4:6]}-{r[6:8]}"
+            if len(r) >= 10:
+                return r[:10]
+        return None
+
+    def _with_sd(sd, m):
+        d = json.loads(m)
+        d['_stat_date'] = sd
+        return d
+
+    def _in_week(m):
+        pd = _pub_date(m)
+        if pd is None:
+            # 没有发表日字段的快照（旧数据 / 部分来源）：退回按抓取日 stat_date 判断，
+            # 不能因为缺字段就把数据整段丢掉。
+            sd = m.get('_stat_date')
+            return sd is not None and b <= sd <= e
+        return b <= pd <= e
+
+    # 只留「发表日在本周」的；同文章多日快照按文章去重取最新
+    arts = [(sd, ti, _with_sd(sd, m)) for sd, ti, m in detail_rows if _in_week(_with_sd(sd, m))]
+    dc_arts = [(sd, ti, _with_sd(sd, m)) for sd, ti, m in rows if _in_week(_with_sd(sd, m))]
+    # 完读率 Top10：优先用 article_detail 的 finished_read_pv_ratio（30 天窗口，有 read_uv 分母），
+    # 回退到 datacube 的 finish_read_rate（7 天窗口）。
+    # 去重：article_detail 是「每日快照」，同一篇文章会在多天各一行
+    # （实测「rea 屠榜 GitHub」在 10-19/10-20/10-21 各一行）。
+    # 客户看到同标题重复出现会立刻质疑。规则：同一 appmsgid+itemidx 只取**最新 stat_date** 那一行
+    # （最新 = 数据最全），并把取了几行、覆盖几天写进口径行。
+    latest_by_art = {}
     for sd, ti, m in arts:
+        key = ti
+        prev = latest_by_art.get(key)
+        if prev is None or sd > prev[0]:
+            latest_by_art[key] = (sd, m)
+    by_key = {}
+    for ti, (sd, m) in latest_by_art.items():
+        fr = m.get('finished_read_pv_ratio')
+        if fr is not None:
+            by_key[(ti, sd)] = (fr, m, 'ad30')
+    dc_latest = {}
+    dc_by_art = {}
+    for sd, ti, m in dc_arts:
+        if ti not in dc_latest or sd > dc_latest[ti][0]:
+            dc_latest[ti] = (sd, m)
+        dc_by_art[ti] = m
+    # 同一篇文章若 ad30 已有，则不再补 dc7（否则 Top 表里同一篇文章出现两行，
+    # 客户会问「这篇为什么有两条」）。dc7 只用于 ad30 缺失的文章。
+    have_arts = {ti for (ti, _sd) in by_key}
+    for ti, (sd, m) in dc_latest.items():
+        if ti in have_arts:
+            continue
         if m.get('finish_read_rate'):
-            key = (ti, sd)
-            by_key[key] = m
-    top = sorted(by_key.items(), key=lambda kv: -float(kv[1]['finish_read_rate']))[:10]
-    def _top_cell(k, m):
-        v = m.get(k)
-        if not isinstance(v, (int, float)):
-            return v if v != '' else '-'
-        return _fmt_value(v, k in ('finish_read_rate', 'read_rate'))
-    top_rows = [[kv[0][0][:40]] + [_top_cell(k, kv[1]) for k in
-                  ('finish_read_rate', 'read_rate', 'total_pv', 'total_share')] for kv in top]
+            by_key[(ti, sd)] = (m['finish_read_rate'], m, 'dc7')
+    # R237：剔除「分母为 0 的伪 100%」。
+    # 微信在 total_read_finish=0（没人读完）时把 finish_read_rate 返回 1（即 100%），
+    # 而不是空值。直接排序会让这些行冲到 Top1 —— 实测本号 17 行里 2 行（11.8%）是这种。
+    # 客户看到「完读率 100%」会立刻质疑，而这是分母为 0，不是内容好。
+    # 判据：finish_read_rate >= 1.0 且 total_read_finish == 0 ⇒ 判为无意义值，排除出排名。
+    def _fake_perfect(entry):
+        fr, m, src = entry
+        try:
+            if src == 'dc7':
+                # datacube：finish_read_rate>=1 且 total_read_finish==0 ⇒ 分母为 0 的伪 100%
+                return float(fr) >= 1.0 and int(m.get('total_read_finish') or 0) == 0
+            # article_detail：完读率 1.0 但 read_uv 很小（<5 人）时，1 人读完 = 100%，无统计意义
+            return float(fr) >= 1.0 and int(m.get('read_uv') or 0) < 5
+        except (TypeError, ValueError):
+            return False
+    fake_perfect = {k for k, v in by_key.items() if _fake_perfect(v)}
+    if fake_perfect:
+        by_key = {k: v for k, v in by_key.items() if k not in fake_perfect}
+    top = sorted(by_key.items(), key=lambda kv: -float(kv[1][0]))[:10]
+
+    def _top_row(kv):
+        ti, sd = kv[0]
+        fr, m, src = kv[1]
+        uv = m.get('read_uv')
+        ch = m.get('channel_breakdown') or []
+        rec = next((c for c in ch if c.get('scene_label') == '推荐'), None)
+        rec_pct = rec.get('read_pct') if isinstance(rec, dict) else None
+        avg = m.get('avg_article_read_time')
+        # 阅读率（阅读/送达）只在 datacube 源有；该文章有 dc7 行时回填，
+        # 否则留 '-'（不许用别的口径冒充）。
+        rr = None
+        dmrow = dc_by_art.get(ti)
+        if dmrow:
+            rr = dmrow.get('read_rate')
+        return [ti[:36], f'{float(fr):.1%}', (uv if uv is not None else '-'),
+                (f'{rec_pct:.0f}%' if isinstance(rec_pct, (int, float)) else '-'),
+                (f'{avg:.0f}s' if isinstance(avg, (int, float)) else '-'),
+                (f'{rr:.1%}' if isinstance(rr, (int, float)) else '-'), src]
+    top_rows = [_top_row(kv) for kv in top]
     lines = [f'# 公众号数据周报 {iso_week}（{b} ~ {e}）', '', calibration_note(), '']
-    lines.append(f'快照文章行数：{len(arts)}（datacube 文章级，7 天窗口口径）')
+    lines.append(f'**本周发表的文章**：**{len(latest_by_art)}** 篇（口径 = 文章发表日落在 {b} ~ {e}，'
+                 f'不是抓取日；单篇渠道页口径，含推荐/公众号消息/搜一搜渠道构成；'
+                 f'原始快照 {len(arts)} 行，每日快照已按文章去重取最新）'
+                 f'；datacube 补充 {len(dc_latest)} 篇（文章级 7 天窗口）')
     lines.append('')
+    if fake_perfect:
+        lines.append(f'> 已排除 {len(fake_perfect)} 篇「分母为 0 的伪 100% 完读率」'
+                     f'（微信在无人读完时返回 100%，非内容表现好）。')
+        lines.append('')
     if top:
         n = min(10, len(top))
         suffix = '' if n == 10 else f'（共 {len(top)} 篇）'
-        lines.append('## 完读率 Top%d%s（datacube 发表后 7 天窗口）' % (n, suffix))
-        lines.append(_md_table(['文章', '完读率', '阅读率', '送达pv', '分享'], top_rows))
+        lines.append('## 完读率 Top%d%s（单篇渠道页口径；ad30=30天窗口, dc7=发表后7天）' % (n, suffix))
+        lines.append(_md_table(['文章', '完读率', '阅读uv', '推荐占比', '均阅读时长', '阅读率', '口径'], top_rows))
     else:
         lines.append('本周无 datacube 快照数据（fetch 未覆盖该周，或均为 T+1 未出）。')
 
+    # ---- 本周该做什么（判断层）----
+    # R240：只给数字不给判断 = 把客户自己的活儿还给他。
+    # 判断层用 mpdt 自己抓的 channel_breakdown（推荐渠道绝对阅读人数），
+    # 不需要客户导出任何东西就能给出第一条结论。
+    try:
+        _rows = advice_mod.load_rows(con)
+        _adv = advice_mod.advise(_rows)
+        lines.append(advice_mod.render(_adv))
+        advice_info = {'verdict': _adv.get('verdict'), 'headline': _adv.get('headline'),
+                       'n_actions': len(_adv.get('actions') or []),
+                       'evidence': _adv.get('evidence', {})}
+    except Exception as _e:
+        advice_info = {'verdict': 'ERROR', 'error': '%s: %s' % (type(_e).__name__, _e)}
+        lines.append('> ⚠ 判断层未能生成：%s\n' % advice_info['error'])
+
     # 跨 series 对照（宽表）：折叠无数据 / 全 0 概念
-    blocks = cross_source_table(con)
+    # R238：宽表也按周筛（只留本周发表的文章）
+    week_keys = _week_article_keys(con, b, e)
+    blocks = cross_source_table(con, week_keys=week_keys)
     cross_rows_total = 0
     has_data_concepts = [b for b in blocks if b['has_data'] and not b['all_zero']]
     folded_concepts = [b for b in blocks if (not b['has_data']) or b['all_zero']]
@@ -378,18 +540,20 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
             zero = [b for b in folded_concepts if b['has_data'] and b['all_zero']]
             if missing_src:
                 by_missing = {}
-                for b in missing_src:
-                    key = '+'.join(sorted(b['missing_sources']))
-                    by_missing.setdefault(key, []).append(b['display'])
+                # R238：循环变量不能叫 b —— b 是周界（week begin），for 循环会覆盖它。
+                # 旧代码用 b 且此后没再读 b，所以一直没炸；周筛延伸到本节之后才暴露。
+                for blk in missing_src:
+                    key = '+'.join(sorted(blk['missing_sources']))
+                    by_missing.setdefault(key, []).append(blk['display'])
                 parts = ['%s（缺 %s 快照）' % ('、'.join(names), miss)
                          for miss, names in by_missing.items()]
                 lines.append('')
                 lines.append('> **本周无可对照数据的概念**：%s。' % '；'.join(parts))
             if missing_field:
                 by_mf = {}
-                for b in missing_field:
-                    key = '+'.join(sorted(b['missing_fields']))
-                    by_mf.setdefault(key, []).append(b['display'])
+                for blk in missing_field:
+                    key = '+'.join(sorted(blk['missing_fields']))
+                    by_mf.setdefault(key, []).append(blk['display'])
                 parts = ['%s（缺字段 %s）' % ('、'.join(names), mf)
                          for mf, names in by_mf.items()]
                 lines.append('> **本周无可对照数据的概念**：%s。' % '；'.join(parts))
@@ -408,9 +572,21 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
         lines.append('（本周 CONCEPTS 中无多 series 概念，无需对照。）')
 
     # 单篇渠道构成（FR3②，30 天窗口口径）
-    det = con.execute(
-        "SELECT stat_date, title, metrics FROM snapshots WHERE source='article_detail' "
-        "ORDER BY stat_date DESC, appmsgid DESC LIMIT 15").fetchall()
+    # R238：同样按发表日筛周 —— 之前这节直接取全库最新 15 行，
+    # 会把上周（甚至更早）的文章混进本周周报，客户一眼看出错。
+    # 按 (appmsgid, itemidx) 去重：同一篇文章多天快照只取最新那条。
+    # 否则客户看到同一标题两行（不同渠道占比），会问「这为什么有两条」。
+    det_map = {}
+    for sd, ti, m, am, ix in con.execute(
+            "SELECT stat_date, title, metrics, appmsgid, itemidx FROM snapshots "
+            "WHERE source='article_detail' ORDER BY stat_date DESC, appmsgid DESC").fetchall():
+        dm = _with_sd(sd, m)
+        if not _in_week(dm):
+            continue
+        k = (str(am), int(ix))
+        if k not in det_map:      # rows 已按 stat_date DESC 排序 ⇒ 首个即最新
+            det_map[k] = (sd, ti, dm)
+    det = list(det_map.values())[:15]
     if det:
         lines.append('')
         lines.append('## 单篇渠道构成（完读率 + 渠道来源，30 天窗口口径）')
@@ -423,7 +599,8 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
             return None
 
         rows2 = []
-        for sd, ti, m in ((a, b, json.loads(c)) for a, b, c in det):
+        # det 的 metrics 已是 dict（R238 周筛时解析过），不要再 json.loads
+        for sd, ti, m in det:
             ruv = m.get('read_uv')
             # 跳过 read_uv=0 的"无信号"行（与折叠精神一致）
             if not isinstance(ruv, (int, float)) or ruv == 0:
@@ -454,7 +631,10 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
     h = open(html_path).read()
     assert f'<title>mpdt 周报 {iso_week}</title>' in h and '<pre>' not in h \
         and '口径说明' in h, 'HTML 模板化断言失败'
-    return {'md': md_path, 'html': html_path, 'rows': len(arts),
+    # rows 语义 = 本周发表的文章数（article_detail 与 datacube 两源并集，按标题去重）
+    week_articles = set(ti for (_sd, ti, _m) in arts) | set(ti for (_sd, ti, _m) in dc_arts)
+    return {'md': md_path, 'html': html_path, 'rows': len(week_articles),
+            'advice': advice_info,
             'cross_rows': cross_rows_total,
             'concepts_compared': [b['concept'] for b in has_data_concepts],
             'concepts_empty': [b['concept'] for b in folded_concepts]}

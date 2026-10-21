@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 
 from . import __version__, config, store, report, metrics as metrics_mod
+from . import push
 from .errors import MpdtError, UpstreamError
 
 
@@ -239,7 +240,57 @@ def cmd_report(args):
                      'cross_rows': out['cross_rows'],
                      'concepts_compared': out.get('concepts_compared', []),
                      'concepts_empty': out.get('concepts_empty', []),
+                     # 判断层结论：cron 与外部调用靠它判断"本周值不值得推"
+                     'advice': out.get('advice', {}),
                      'week': week})
+
+
+def cmd_push(args):
+    """把周报推送给客户（邮件）。失败显式报错，不静默。"""
+    r = RES[0]
+    cfg = config.load()
+    con = store.connect(cfg['db_path'])
+    week = args.week or f'{today_shanghai().isocalendar().year}-W{today_shanghai().isocalendar().week:02d}'
+    out_dir = args.out or 'mpdt-reports'
+    md_path = os.path.join(out_dir, f'weekly-{week}.md')
+    if not os.path.exists(md_path):
+        # 没生成过就先生成（客户不该需要两步）
+        out = report.generate(con, week, out_dir)
+        md_path = out['md']
+    try:
+        res = push.send_report(md_path, args.to, subject=args.subject or '',
+                               week=week, force=args.force,
+                               allow_unlisted=args.allow_unlisted)
+    except push.PushError as e:
+        return r.result(f'推送失败：{e}', {'ok': False, 'error': str(e)}, ok=False)
+    if res.get('skipped'):
+        return r.result(f"跳过（已推过）：{res['recipient']} · {week}（--force 可重发）", res)
+
+    # R239：SMTP 返回成功 ≠ 收件方收到（实测发给不存在的 example.com 也返回成功）。
+    # 默认用发件箱 IMAP 回查验证；只有自己的收件箱能查（外部邮箱查不了）。
+    verify = {'delivered': None, 'note': '未验证（外部收件箱无法回查）'}
+    if args.verify:
+        # 凭据可能在 ~/.hermes/.env 而不在 os.environ —— 用 push 的加载器
+        env = push._load_env()
+        v = push.verify_delivery(
+            args.to, subject_contains=args.subject or week,
+            imap_host=env.get('EMAIL_IMAP_HOST', ''),
+            imap_port=int(env.get('EMAIL_IMAP_PORT', '993')),
+            imap_user=env.get('EMAIL_ADDRESS', ''),
+            imap_password=env.get('EMAIL_PASSWORD', ''))
+        verify = v
+        if v.get('delivered') is False:
+            return r.result(
+                f"⚠ SMTP 接受但**未验证送达**：{args.to}（{v.get('error')}）。"
+                f"请人工确认对方收件箱，勿当成已送达。",
+                {'ok': False, 'error': v.get('error'), 'smtp_accepted': True,
+                 'recipient': args.to, 'week': week, **res})
+    ok_msg = f"已推送：{res['recipient']} · {week}（{res['bytes']} 字节，HTML 内联）"
+    if verify.get('delivered') is True:
+        ok_msg += "；已回查确认送达"
+    elif verify.get('delivered') is None and not args.verify:
+        ok_msg += "（SMTP 已接受，未验证收件方收到）"
+    return r.result(ok_msg, {**res, 'verify': verify})
 
 
 # ---- doctor / status：一站式体检与状态查询（UX 打磨，全部只读） ----
@@ -567,6 +618,19 @@ def main(argv=None):
     pr.set_defaults(fn=cmd_report)
 
     # ---- export ----
+    pp = sub.add_parser(
+        'push', help='把周报推送给客户（邮件；HTML 内联，失败显式报错）')
+    pp.add_argument('--to', required=True, metavar='EMAIL', help='收件人邮箱')
+    pp.add_argument('--week', metavar='ISO周', default=None, help='默认本周')
+    pp.add_argument('--out', metavar='DIR', default='mpdt-reports', help='周报目录（默认 mpdt-reports）')
+    pp.add_argument('--subject', metavar='TEXT', default=None, help='邮件标题')
+    pp.add_argument('--force', action='store_true', help='同一周同一收件人重发')
+    pp.add_argument('--allow-unlisted', action='store_true',
+                    help='临时放行未登记收件人（会记入 push_unlisted.log 留痕）')
+    pp.add_argument('--verify', action='store_true',
+                    help='推送后用 IMAP 回查收件箱确认真的送达（只对自己的邮箱有效）')
+    pp.set_defaults(fn=cmd_push)
+
     pe = sub.add_parser(
         'export', help='导出快照为 CSV / JSON（附口径元数据）',
         description='把某个数据源的快照导出为 CSV 或 JSON。默认附带口径元数据\n'

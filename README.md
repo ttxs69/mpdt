@@ -28,6 +28,11 @@
 **纯静态页面，零后端**：文件在浏览器本地解析，**不上传、不存储、断网也能用**。
 判定内核与 mpdt 周报**共用同一份代码**（`docs/diagnosis/kernel.js`），所以两处结论不会互相打架。
 
+> **国内打不开 GitHub Pages？** 用[单文件版](https://ttxs69.github.io/mpdt/self-service-single.html)——
+> 33 KB 的一个 HTML，下载后双击就能跑，可以微信直接转发给别人。
+
+![内容系列对照表](docs/diagnosis/assets/table.png)
+
 需要人工解读、逐篇改法或每月持续跟踪：
 
 | | 价格 | 交付 |

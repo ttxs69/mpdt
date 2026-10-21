@@ -1,0 +1,34 @@
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/diagnosis/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          # 只发布诊断工具目录（不放 README/文档，避免路径混乱）
+          path: docs/diagnosis
+      - id: deployment
+        uses: actions/deploy-pages@v4

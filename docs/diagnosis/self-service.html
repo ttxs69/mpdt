@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>公众号推荐机制诊断 · 自助版（数据不出你的浏览器）</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --line:#262b36; --fg:#e6e9ef; --dim:#9aa4b2;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:15px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 80px}
+  h1{font-size:24px;margin:0 0 6px}
+  h2{font-size:18px;margin:28px 0 10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .sub{color:var(--dim);font-size:14px;margin-bottom:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin:16px 0}
+  .drop{border:2px dashed var(--line);border-radius:10px;padding:34px;text-align:center;cursor:pointer;transition:.15s}
+  .drop:hover,.drop.hot{border-color:var(--acc);background:#11151d}
+  .drop b{color:var(--acc)}
+  button{background:var(--acc);color:#08121f;border:0;border-radius:6px;padding:9px 18px;
+         font-size:14px;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.ghost{background:transparent;color:var(--dim);border:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:10px 0}
+  th,td{border-bottom:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+  th{color:var(--dim);font-weight:600}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid}
+  .t-ok{color:var(--ok);border-color:#1d572f;background:#0f2417}
+  .t-warn{color:var(--warn);border-color:#5c4413;background:#241d0f}
+  .t-bad{color:var(--bad);border-color:#6e2b28;background:#2a1414}
+  .t-acc{color:var(--acc);border-color:#1f3d63;background:#0d1826}
+  ol,ul{padding-left:22px}
+  li{margin:5px 0}
+  .note{color:var(--dim);font-size:13px}
+  .big{font-size:19px;font-weight:700}
+  code{background:#11151d;padding:1px 5px;border-radius:4px;font-size:13px}
+  .privacy{background:#0f2417;border:1px solid #1d572f;border-radius:8px;padding:12px 14px;font-size:13.5px}
+  .err{background:#2a1414;border:1px solid #6e2b28;border-radius:8px;padding:12px 14px;white-space:pre-wrap}
+  .cta{background:#0d1826;border:1px solid #1f3d63;border-radius:8px;padding:16px;margin-top:22px}
+  .hide{display:none}
+  .steps{counter-reset:s}
+  .steps li{margin:9px 0}
+  a{color:var(--acc)}
+  footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>公众号推荐机制诊断 · 自助版</h1>
+  <div class="sub">上传后台导出的「已发表内容明细」，30 秒内得到一份带动作的诊断报告。<b>数据全程在你的浏览器里处理，不上传、不存储。</b></div>
+
+  <div class="privacy">
+    <b>隐私</b>：这个页面是一个纯静态 HTML 文件，没有任何后端。文件内容用浏览器本地 API 解析，
+    不会发到任何服务器。你可以直接下载保存这个文件，断网也能用。
+  </div>
+
+  <h2>一、拿数据</h2>
+  <ol class="steps">
+    <li>公众号后台 → <b>内容分析 → 已发表内容 → 全部</b>（注意要选「全部」，不是「已通知内容」）</li>
+    <li>点页面顶部的 <b>「下载数据明细」</b>，得到一个 .xlsx</li>
+    <li>把文件拖到下面的框里（也支持 .csv）</li>
+  </ol>
+  <p class="note">不要改表头、不要删行。原样拖进来就行。表头认不出来时页面会告诉你缺哪一列。</p>
+
+  <div class="drop" id="drop">
+    <p><b>把 .xlsx / .csv 拖到这里</b></p>
+    <p class="note">或 <button class="ghost" id="pick">选择文件</button></p>
+    <input type="file" id="file" accept=".xlsx,.csv,.xlsm" hidden>
+  </div>
+
+  <div id="err" class="err hide"></div>
+
+  <h2>二、看结论</h2>
+  <div id="out" class="hide"></div>
+
+  <div class="cta" id="cta" style="display:none">
+    <div class="big">想要人工解读？</div>
+    <p>这份自助报告是同一个判定内核跑出来的，结论口径与服务版完全一致。
+    如果你需要：<b>逐篇的改法</b>、<b>你号特有的问题诊断</b>、<b>每月持续跟踪</b>，可以找我做人工版。</p>
+    <ul>
+      <li><b>单号诊断 ¥499</b>（24 小时交付；30 天内升级月度，诊断费全额抵扣）</li>
+      <li><b>月度陪跑 ¥1,999/月</b>（每月 1 次诊断 + 4 次问答）</li>
+      <li><b>服务商档 ¥149/号，5 号起 ¥745</b>（48 小时，报告可白标转给你的客户）</li>
+    </ul>
+    <p class="note">我们不承诺阅读量、涨粉数、能不能被推荐——平台分发不受单方控制，承诺这些就是骗你。
+    我们承诺：每个数字都带分母，你能用自己后台复算。</p>
+    <p><a href="https://github.com/ttxs69/mpdt/issues">在 GitHub 提 issue 问问题 / 要人工版 →</a></p>
+  </div>
+
+  <footer>
+    判定内核与 <a href="https://github.com/ttxs69/mpdt">mpdt</a>（公众号后台数据自动化工具）共用同一份代码，
+    所以自助版和服务版的结论不会打架。<br>
+    本页所有逻辑在浏览器本地运行；页面本身不含任何统计代码。
+  </footer>
+</div>
+
+<script src="kernel.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

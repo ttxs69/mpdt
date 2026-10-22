@@ -103,7 +103,12 @@ jobs:
           python-version: "3.12"
 
       - name: Fetch tags
-        run: git fetch --tags origin
+        # 为什么必须 --force（2026-10-22 实测）：
+        # actions/checkout 把 tag 取成**轻量引用**，而仓库里的发版 tag 是 `git tag -a` 建的
+        # **注解对象**；对象不同 ⇒ 裸 `git fetch --tags` 拒绝覆盖，报
+        #   `! [rejected] v0.2.7-rc1 -> v0.2.7-rc1 (would clobber existing tag)` 并 exit 1，
+        # 整条 version-gate 在跑脚本之前就红了。CI 里远端是唯一真相，强制对齐是对的。
+        run: git fetch --tags --force origin
 
       - name: Version gate — dual-file sync + no regression below tag
         env:

@@ -1,5 +1,6 @@
 """SQLite 快照（FR4）：(来源, 日期, appmsgid, itemidx) 幂等 upsert + journal 运行日志。
 只追加式演进（schema_version），CSV 导出（附带口径元数据伴随文件）。"""
+
 import csv
 import datetime as dt
 import json
@@ -33,19 +34,31 @@ def connect(db_path: str) -> sqlite3.Connection:
     return con
 
 
-def upsert(con, source: str, stat_date: str, appmsgid, itemidx, title, metrics: dict, fetched_at=None):
-    fetched_at = fetched_at or dt.datetime.now().astimezone().isoformat(timespec='seconds')
+def upsert(
+    con, source: str, stat_date: str, appmsgid, itemidx, title, metrics: dict, fetched_at=None
+):
+    fetched_at = fetched_at or dt.datetime.now().astimezone().isoformat(timespec="seconds")
     con.execute(
         "INSERT INTO snapshots VALUES (?,?,?,?,?,?,?) "
         "ON CONFLICT(source, stat_date, appmsgid, itemidx) DO UPDATE SET "
         "title=excluded.title, metrics=excluded.metrics, fetched_at=excluded.fetched_at",
-        (source, stat_date, str(appmsgid), int(itemidx), title,
-         json.dumps(metrics, ensure_ascii=False), fetched_at))
+        (
+            source,
+            stat_date,
+            str(appmsgid),
+            int(itemidx),
+            title,
+            json.dumps(metrics, ensure_ascii=False),
+            fetched_at,
+        ),
+    )
 
 
-def log_run(con, cmd: str, ok: bool, detail: str = ''):
-    con.execute("INSERT INTO journal(ran_at, cmd, ok, detail) VALUES (?,?,?,?)",
-                (dt.datetime.now().astimezone().isoformat(timespec='seconds'), cmd, int(ok), detail))
+def log_run(con, cmd: str, ok: bool, detail: str = ""):
+    con.execute(
+        "INSERT INTO journal(ran_at, cmd, ok, detail) VALUES (?,?,?,?)",
+        (dt.datetime.now().astimezone().isoformat(timespec="seconds"), cmd, int(ok), detail),
+    )
     con.commit()
 
 
@@ -61,23 +74,22 @@ def csv_metric_meta(source: str, keys) -> list:
         if hit:
             reg_key, _, s = hit
             # 找单位：CONCEPTS / META_FIELDS / DEPRECATED 任一张
-            unit = '(未登记)'
-            for table in (metrics_mod.CONCEPTS, metrics_mod.META_FIELDS,
-                          metrics_mod.DEPRECATED):
+            unit = "(未登记)"
+            for table in (metrics_mod.CONCEPTS, metrics_mod.META_FIELDS, metrics_mod.DEPRECATED):
                 if reg_key in table:
-                    unit = table[reg_key].get('unit', '(未登记)')
+                    unit = table[reg_key].get("unit", "(未登记)")
                     break
             # 「是否跨源可比」列：指标概念才有意义（元数据/旧版填 '不适用'）
             kind = _meta_kind(reg_key)
             if kind:
-                comparable = '不适用（%s）' % kind
+                comparable = f"不适用（{kind}）"
             elif reg_key in metrics_mod.DEPRECATED:
-                comparable = '不适用（已弃用）'
+                comparable = "不适用（已弃用）"
             else:
-                comparable = '否' if _concept_series_count(reg_key) >= 2 else '是'
-            out.append([k, s['source'], s['window'], s['denominator'], unit, comparable])
+                comparable = "否" if _concept_series_count(reg_key) >= 2 else "是"
+            out.append([k, s["source"], s["window"], s["denominator"], unit, comparable])
         else:
-            out.append([k, source, '(未登记)', '(未登记)', '(未登记)', '(未登记)'])
+            out.append([k, source, "(未登记)", "(未登记)", "(未登记)", "(未登记)"])
     return out
 
 
@@ -90,27 +102,35 @@ def export_json(con, source: str, out_path: str, with_meta=True) -> int:
     """
     rows = con.execute(
         "SELECT stat_date, appmsgid, itemidx, title, metrics FROM snapshots "
-        "WHERE source=? ORDER BY stat_date, appmsgid", (source,)).fetchall()
+        "WHERE source=? ORDER BY stat_date, appmsgid",
+        (source,),
+    ).fetchall()
     keys = sorted({k for _, _, _, _, m in rows for k in json.loads(m)})
     records = []
     for sd, am, ix, ti, m in rows:
-        rec = {'stat_date': sd, 'appmsgid': am, 'itemidx': ix, 'title': ti}
+        rec = {"stat_date": sd, "appmsgid": am, "itemidx": ix, "title": ti}
         rec.update(json.loads(m))
         records.append(rec)
     payload = {
-        'source': source,
-        'generated_at': dt.datetime.now().astimezone().isoformat(timespec='seconds'),
-        'columns': ['stat_date', 'appmsgid', 'itemidx', 'title'] + keys,
-        'row_count': len(rows),
-        'records': records,
+        "source": source,
+        "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "columns": ["stat_date", "appmsgid", "itemidx", "title", *keys],
+        "row_count": len(rows),
+        "records": records,
     }
     if with_meta:
-        payload['metrics_meta'] = {
-            'columns': ['column', 'source', 'window', 'denominator', 'unit',
-                        'cross_source_comparable'],
-            'rows': csv_metric_meta(source, keys),
+        payload["metrics_meta"] = {
+            "columns": [
+                "column",
+                "source",
+                "window",
+                "denominator",
+                "unit",
+                "cross_source_comparable",
+            ],
+            "rows": csv_metric_meta(source, keys),
         }
-    with open(out_path, 'w', encoding='utf-8') as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     return len(rows)
 
@@ -118,18 +138,19 @@ def export_json(con, source: str, out_path: str, with_meta=True) -> int:
 def _concept_series_count(reg_key: str) -> int:
     """查询某个登记键（非 deprecated）下的 series 数。"""
     if reg_key in metrics_mod.CONCEPTS:
-        return sum(1 for s in metrics_mod.CONCEPTS[reg_key]['series'].values()
-                   if not s.get('deprecated'))
+        return sum(
+            1 for s in metrics_mod.CONCEPTS[reg_key]["series"].values() if not s.get("deprecated")
+        )
     if reg_key in metrics_mod.META_FIELDS:
-        return len(metrics_mod.META_FIELDS[reg_key]['series'])
+        return len(metrics_mod.META_FIELDS[reg_key]["series"])
     return 0
 
 
 def _meta_kind(reg_key: str) -> str:
     """返回元数据键的 kind（snapshot/derived/structured）或 ''（指标概念）。"""
     if reg_key in metrics_mod.META_FIELDS:
-        return metrics_mod.META_FIELDS[reg_key].get('kind', '')
-    return ''
+        return metrics_mod.META_FIELDS[reg_key].get("kind", "")
+    return ""
 
 
 def export_csv(con, source: str, out_path: str, with_meta=True) -> int:
@@ -140,18 +161,22 @@ def export_csv(con, source: str, out_path: str, with_meta=True) -> int:
     """
     rows = con.execute(
         "SELECT stat_date, appmsgid, itemidx, title, metrics FROM snapshots "
-        "WHERE source=? ORDER BY stat_date, appmsgid", (source,)).fetchall()
+        "WHERE source=? ORDER BY stat_date, appmsgid",
+        (source,),
+    ).fetchall()
     keys = sorted({k for _, _, _, _, m in rows for k in json.loads(m)})
-    with open(out_path, 'w', newline='') as f:
+    with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(['stat_date', 'appmsgid', 'itemidx', 'title'] + keys)
+        w.writerow(["stat_date", "appmsgid", "itemidx", "title", *keys])
         for sd, am, ix, ti, m in rows:
             mm = json.loads(m)
-            w.writerow([sd, am, ix, ti] + [mm.get(k, '') for k in keys])
+            w.writerow([sd, am, ix, ti] + [mm.get(k, "") for k in keys])
     if with_meta:
-        meta_path = out_path + '.metrics.csv'
-        with open(meta_path, 'w', newline='') as f:
+        meta_path = out_path + ".metrics.csv"
+        with open(meta_path, "w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(['column', 'source', 'window', 'denominator', 'unit', 'cross_source_comparable'])
+            w.writerow(
+                ["column", "source", "window", "denominator", "unit", "cross_source_comparable"]
+            )
             w.writerows(csv_metric_meta(source, keys))
     return len(rows)

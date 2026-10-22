@@ -12,12 +12,13 @@ Usage:
 
 退出码: 0=完全一致 / 1=差异 / 4=网络错误
 """
+
 import argparse
+import difflib
 import json
 import sys
 import urllib.error
 import urllib.request
-import difflib
 from pathlib import Path
 
 
@@ -61,11 +62,19 @@ def main():
     print(f"[DIFF] {args.package} README.md vs PyPI description:")
     print(f"  local chars: {len(local_readme)}")
     print(f"  pypi  chars: {len(pypi_desc)}")
-    diff = list(difflib.unified_diff(pypi_desc.splitlines(), local_readme.splitlines(), lineterm="", fromfile="pypi", tofile="local"))
+    diff = list(
+        difflib.unified_diff(
+            pypi_desc.splitlines(),
+            local_readme.splitlines(),
+            lineterm="",
+            fromfile="pypi",
+            tofile="local",
+        )
+    )
     if diff:
         print("\n".join(diff[:50]))
         if len(diff) > 50:
-            print(f"... (+{len(diff)-50} more diff lines)")
+            print(f"... (+{len(diff) - 50} more diff lines)")
     if args.strict_diff:
         return 1
     # 非严格模式：有差异仍然退出 0（仅记录用）

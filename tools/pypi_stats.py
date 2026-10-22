@@ -14,6 +14,7 @@ Usage:
 Use case: 接入 watchers 链路 (WATCHER_STATE_DIR) 或自建 cron。watermark 是
 {recent_last_week, recent_last_day, overall_yyyymmdd} 三元组，只有变化才打印。
 """
+
 import argparse
 import datetime
 import json
@@ -47,7 +48,12 @@ def fetch_overall(package):
 
 
 def watermark_path(state_dir, package):
-    return os.path.join(os.path.expanduser(state_dir or os.environ.get("WATCHER_STATE_DIR", "~/.hermes/watcher-state")), f"pypi-{package}.json")
+    return os.path.join(
+        os.path.expanduser(
+            state_dir or os.environ.get("WATCHER_STATE_DIR", "~/.hermes/watcher-state")
+        ),
+        f"pypi-{package}.json",
+    )
 
 
 def _normalize_recent(data):
@@ -112,10 +118,17 @@ def cmd_check(args):
             print(f"[WARN] overall fetch failed: {e}", file=sys.stderr)
 
     prev = _read_watermark(wp)
-    new_wm = {"recent": recent, "overall": overall, "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    new_wm = {
+        "recent": recent,
+        "overall": overall,
+        "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
     if prev is None:
         _write_watermark(wp, new_wm)
-        print(f"[BASELINE] {pkg}: recent={recent} overall_keys={list(overall.keys())}", file=sys.stderr)
+        print(
+            f"[BASELINE] {pkg}: recent={recent} overall_keys={list(overall.keys())}",
+            file=sys.stderr,
+        )
         return 0
     # Compare
     prev_recent = prev.get("recent") or {}
@@ -148,7 +161,14 @@ def cmd_init(args):
     except Exception as e:
         print(f"[ERROR] init fetch failed: {e}", file=sys.stderr)
         return 4
-    _write_watermark(wp, {"recent": recent, "overall": overall, "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+    _write_watermark(
+        wp,
+        {
+            "recent": recent,
+            "overall": overall,
+            "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        },
+    )
     print(f"[INIT] {pkg}: recent={recent}", file=sys.stderr)
     return 0
 
@@ -170,7 +190,11 @@ def cmd_print(args):
 def main():
     p = argparse.ArgumentParser(description="Watch PyPI download stats (pypistats).")
     p.add_argument("--package", required=True)
-    p.add_argument("--state-dir", default=None, help="Override $WATCHER_STATE_DIR (default: ~/.hermes/watcher-state)")
+    p.add_argument(
+        "--state-dir",
+        default=None,
+        help="Override $WATCHER_STATE_DIR (default: ~/.hermes/watcher-state)",
+    )
     p.add_argument("--all", action="store_true", help="Include overall per-day breakdown")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check").call_default = lambda a: None

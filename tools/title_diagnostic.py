@@ -17,23 +17,27 @@ R140 落盘（2026-10-19）：mpdt publish_list 全量扫，按 rules.yaml exter
 
 依赖：pyyaml（解析 rules.yaml 的 external_rules.title.length_band）
 """
-import argparse, json, re, sqlite3, sys
-from collections import Counter, defaultdict
+
+import argparse
+import json
+import re
+import sqlite3
+import sys
 from pathlib import Path
 
 import yaml
 
 DB_DEFAULT = "/home/ubuntu/.mpdt/mpdt.sqlite3"
-RULES_PATH = Path(__file__).resolve().parents[2] / "products" / "mp-operator-agent" / "engine" / "rules.yaml"
+RULES_PATH = (
+    Path(__file__).resolve().parents[2] / "products" / "mp-operator-agent" / "engine" / "rules.yaml"
+)
 
 
 def title_len_chars(s: str) -> int:
     """中文 1 字 = 1，英文 token = 1（粗略）。"""
     n = 0
     for ch in s:
-        if '\u4e00' <= ch <= '\u9fff':
-            n += 1
-        elif ch.isascii() and (ch.isalnum() or ch == '-'):
+        if "\u4e00" <= ch <= "\u9fff" or (ch.isascii() and (ch.isalnum() or ch == "-")):
             n += 1
     return n
 
@@ -46,13 +50,25 @@ def load_external_rules(rules_path: Path):
         ext = (rules.get("external_rules") or {}).get("title") or {}
         return {
             "length_band": tuple(ext.get("length_band") or (20, 35)),
-            "ban_patterns": ext.get("ban_patterns") or [
-                "看完即删", "话说一半", "惊悚命令式", "假借官方", "无依据夸大",
+            "ban_patterns": ext.get("ban_patterns")
+            or [
+                "看完即删",
+                "话说一半",
+                "惊悚命令式",
+                "假借官方",
+                "无依据夸大",
             ],
         }
-    return {"length_band": (20, 35), "ban_patterns": [
-        "看完即删", "话说一半", "惊悚命令式", "假借官方", "无依据夸大",
-    ]}
+    return {
+        "length_band": (20, 35),
+        "ban_patterns": [
+            "看完即删",
+            "话说一半",
+            "惊悚命令式",
+            "假借官方",
+            "无依据夸大",
+        ],
+    }
 
 
 def fetch_publish_list(db_path: str, days: int) -> list:
@@ -104,9 +120,9 @@ def diagnose(titles: list, ext_rules: dict) -> dict:
         for entry in bucket:
             t = entry["title"]
             L = title_len_chars(t)
-            if L < LB[0]:
+            if LB[0] > L:
                 out_short.append((L, t))
-            elif L > LB[1]:
+            elif LB[1] < L:
                 out_long.append((L, t))
             else:
                 in_band.append((L, t))
@@ -154,8 +170,12 @@ def render_md(result: dict, days: int) -> str:
         sec = result[key]
         out.append(f"## {sec['label']}  ·  {sec['total']} 条")
         out.append("")
-        out.append(f"- 长度带内 = {sec['length_band_in_count']} / {sec['total']} = {sec['length_band_in_pct']*100:.1f}%")
-        out.append(f"- 英文实体保留 = {sec['eng_entity_keep_count']} / {sec['total']} = {sec['eng_entity_keep_pct']*100:.1f}%")
+        out.append(
+            f"- 长度带内 = {sec['length_band_in_count']} / {sec['total']} = {sec['length_band_in_pct'] * 100:.1f}%"
+        )
+        out.append(
+            f"- 英文实体保留 = {sec['eng_entity_keep_count']} / {sec['total']} = {sec['eng_entity_keep_pct'] * 100:.1f}%"
+        )
         out.append(f"- 数字密度中位 = {sec['num_density_median']} 个/标题")
         if sec["length_band_out_short"]:
             out.append(f"\n### 短标题（<{LB[0]} 字）")

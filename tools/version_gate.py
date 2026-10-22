@@ -15,6 +15,7 @@ Gate (exit codes):
 Usage:
   python tools/version_gate.py [repo_root]   (default: cwd)
 """
+
 import os
 import re
 import subprocess
@@ -38,7 +39,7 @@ def read_versions(root):
     init = os.path.join(root, "mpdt", "__init__.py")
     for p in (pp, init):
         if not os.path.isfile(p):
-            sys.stderr.write("version_gate: missing %s\n" % p)
+            sys.stderr.write(f"version_gate: missing {p}\n")
             sys.exit(2)
     pp_text = open(pp, encoding="utf-8").read()
     init_text = open(init, encoding="utf-8").read()
@@ -46,7 +47,7 @@ def read_versions(root):
     m2 = INIT_RE.search(init_text)
     if not m1 or not m2:
         sys.stderr.write(
-            "version_gate: cannot parse version (pyproject=%s __init__=%s)\n" % (m1 and m1.group(1), m2 and m2.group(1))
+            f"version_gate: cannot parse version (pyproject={m1 and m1.group(1)} __init__={m2 and m2.group(1)})\n"
         )
         sys.exit(2)
     return m1.group(1).strip(), m2.group(1).strip()
@@ -55,10 +56,12 @@ def read_versions(root):
 def highest_tag(root):
     out = subprocess.run(
         ["git", "-C", root, "tag", "--list"],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     if out.returncode != 0:
-        sys.stderr.write("version_gate: git tag failed: %s\n" % out.stderr.strip())
+        sys.stderr.write(f"version_gate: git tag failed: {out.stderr.strip()}\n")
         sys.exit(2)
     best, best_sem = None, None
     for line in out.stdout.split():
@@ -77,31 +80,39 @@ def check(root, allow_eq=False):
     tag_name, tag_sem = highest_tag(root)
     sem_pp, sem_init = parse_semver(v_pp), parse_semver(v_init)
     if sem_pp is None or sem_init is None or tag_sem is None:
-        msg = "version_gate: non-semver version (pyproject=%s __init__=%s)" % (v_pp, v_init)
+        msg = f"version_gate: non-semver version (pyproject={v_pp} __init__={v_init})"
         print(msg, file=sys.stderr)
         return 2, msg
     if v_pp != v_init or sem_pp != sem_init:
         msg = (
-            "version_gate: VERSION MISMATCH — pyproject.toml=%s but mpdt/__init__.py=%s.\n"
+            f"version_gate: VERSION MISMATCH — pyproject.toml={v_pp} but mpdt/__init__.py={v_init}.\n"
             "Fix: align both files before commit (release commits are the ONLY place version changes)."
-            % (v_pp, v_init)
         )
         print(msg, file=sys.stderr)
         return 1, msg
     if sem_pp < tag_sem or (sem_pp == tag_sem and not allow_eq):
         mode = "EQUAL" if sem_pp == tag_sem else "BELOW"
         msg = (
-            "version_gate: VERSION %s — pyproject.toml and mpdt/__init__.py agree at %s but highest tag is %s.\n"
-            "Fix: if this commit changes mpdt, bump BOTH files to > %s (version bump only in release commit); "
-            "%s"
-            % (mode, v_pp, tag_name, tag_name,
-               "if this is a docs/CI-only change not touching mpdt/, this failure means a bump is expected — "
-               "or run with GATE_ALLOW_EQ=1 on PRs." if not allow_eq else
-               "docs/CI-only PRs: coordinate a release bump or keep mpdt/ unchanged.")
+            "version_gate: VERSION {} — pyproject.toml and mpdt/__init__.py agree at {} but highest tag is {}.\n"
+            "Fix: if this commit changes mpdt, bump BOTH files to > {} (version bump only in release commit); "
+            "{}".format(
+                mode,
+                v_pp,
+                tag_name,
+                tag_name,
+                "if this is a docs/CI-only change not touching mpdt/, this failure means a bump is expected — "
+                "or run with GATE_ALLOW_EQ=1 on PRs."
+                if not allow_eq
+                else "docs/CI-only PRs: coordinate a release bump or keep mpdt/ unchanged.",
+            )
         )
         print(msg, file=sys.stderr)
         return 1, msg
-    print("version_gate OK: %s (files agree, %s %s)" % (v_pp, ">" if sem_pp > tag_sem else "==", tag_name))
+    print(
+        "version_gate OK: {} (files agree, {} {})".format(
+            v_pp, ">" if sem_pp > tag_sem else "==", tag_name
+        )
+    )
     return 0, "OK"
 
 

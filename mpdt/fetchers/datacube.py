@@ -5,8 +5,8 @@
    read_rate, total_pv, total_read_finish, total_share, send_succ, ...} ]}
 口径：仅统计发表后 7 天内数据；total_pv 只算送达（群发）阅读（README 口径表）。
 """
+
 import json
-import time
 
 from ..errors import UpstreamError
 
@@ -23,8 +23,14 @@ QUERY_JS = """
 
 # 数值字段归一化：上游把所有值序列化为字符串（"'0.1667'"），入库前统一转数值；
 # refdate 等日期字段保持字符串。未列出字段原样保留。
-_NUM_FIELDS = ('finish_read_rate', 'read_rate', 'total_pv', 'total_read_finish',
-               'total_share', 'send_succ')
+_NUM_FIELDS = (
+    "finish_read_rate",
+    "read_rate",
+    "total_pv",
+    "total_read_finish",
+    "total_share",
+    "send_succ",
+)
 
 
 def _coerce_row(row: dict) -> dict:
@@ -36,7 +42,7 @@ def _coerce_row(row: dict) -> dict:
             try:
                 out[k] = int(t) if t.isdigit() else float(t)
             except ValueError:
-                pass     # 非数值字符串原样保留，由上游异常路径兜底
+                pass  # 非数值字符串原样保留，由上游异常路径兜底
     return out
 
 
@@ -44,16 +50,18 @@ def parse_tmpl17(raw: str) -> list:
     try:
         d = json.loads(raw)
     except ValueError:
-        raise UpstreamError('datacube 非JSON: ' + raw[:200])
-    if 'data' not in d or 'base_resp' not in d:
-        raise UpstreamError('datacube 结构变更（data/base_resp 缺失）: ' + raw[:200])
-    rows = d.get('data') or []
-    if rows and 'finish_read_rate' not in rows[0]:
-        raise UpstreamError('datacube 行结构变更（finish_read_rate 缺失）: ' + raw[:200])
+        raise UpstreamError("datacube 非JSON: " + raw[:200])
+    if "data" not in d or "base_resp" not in d:
+        raise UpstreamError("datacube 结构变更（data/base_resp 缺失）: " + raw[:200])
+    rows = d.get("data") or []
+    if rows and "finish_read_rate" not in rows[0]:
+        raise UpstreamError("datacube 行结构变更（finish_read_rate 缺失）: " + raw[:200])
     return [_coerce_row(r) for r in rows]
 
 
 def fetch(session, begin: str, end: str, size=40) -> list:
     """begin/end: YYYYMMDD（Asia/Shanghai 口径，调用方转换）。"""
-    raw = session.fetch_text(QUERY_JS % (begin, end, size, session.fingerprint, session.ensure_token()))
+    raw = session.fetch_text(
+        QUERY_JS % (begin, end, size, session.fingerprint, session.ensure_token())
+    )
     return parse_tmpl17(raw)

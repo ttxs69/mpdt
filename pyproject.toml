@@ -31,3 +31,69 @@ mpdt = "mpdt.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["mpdt*"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 质量门（python-quality-gate skill · flat 布局）
+# 唯一入口：./scripts/quality.sh —— 本地与 CI 跑同一个文件
+# 90 只出现一次：下面 [tool.coverage.report] 的 fail_under
+# ─────────────────────────────────────────────────────────────────────────────
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["."]
+extend-exclude = ["build", "dist", "*.egg-info"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "SIM", "C90", "RUF"]
+# E501：行宽由格式化器负责。
+# RUF001/002/003（ambiguous-unicode-character-*）：本仓库正文、注释、文档字符串是**中文**，
+#   全角标点（，。：；）是中文排版正确写法，不是"混淆字符"。这三条对中文项目是纯噪音：
+#   实测 2084 条里没有一条是真错字冲突。保留 RUF 其余规则。
+#
+# **存量债不 ignore，而是计数 + 棘轮**（R68）：
+#   首次接入时剩下 164 条（UP031 55 / SIM115 48 / C901 15 / N806 10 / B904 10 / 其余 26）。
+#   如果在这里 ignore 掉，规则对新代码也失效了 —— 那就白接了这道门。
+#   改为由 tools/quality_budget.py 把「ruff 错误数 + mypy 错误数」与基线比较，
+#   **只许降不许涨**。规则全开，债务可见，回归必红。
+#   收敛顺序见 QUALITY.md。
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.isort]
+known-first-party = ["mpdt"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+files = ["mpdt", "tests", "tools"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-config --strict-markers"
+
+[tool.coverage.run]
+branch = true
+source = ["mpdt"]
+relative_files = true
+
+[tool.coverage.report]
+fail_under = 90
+precision = 2
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+    "@(typing\\.)?overload",
+]

@@ -13,6 +13,7 @@
 整段 HTML 落盘会泄漏凭据 —— 首版踩坑，见 log R28）。只读；每篇间隔 ≥2s。
 用法: python3 record_fixture_detail.py [msgid:itemidx:publish_date ...]
 """
+
 import json
 import os
 import re
@@ -22,22 +23,22 @@ import urllib.request
 
 import websocket
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tests', 'fixtures')
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "fixtures")
 os.makedirs(OUT, exist_ok=True)
 
 DEFAULT_TARGETS = [
-    ('2247485219', 1, '2026-10-16'),   # W42 主文（当日口径）
-    ('2247485121', 1, '2026-10-12'),   # 与 datacube tmpl=17 finish_read_rate 交叉校验
-    ('2247484945', 1, '2026-09-23'),   # 2026-09 高阅读文（渠道分布多样）
+    ("2247485219", 1, "2026-10-16"),  # W42 主文（当日口径）
+    ("2247485121", 1, "2026-10-12"),  # 与 datacube tmpl=17 finish_read_rate 交叉校验
+    ("2247484945", 1, "2026-09-23"),  # 2026-09 高阅读文（渠道分布多样）
 ]
 
 
 def _json_after(text: str, key: str):
     """取 `key:` 之后第一个平衡括号 JSON 文本（字符串内括号/转义安全）。"""
-    i = text.find(key + ':')
+    i = text.find(key + ":")
     if i < 0:
         return None
-    j = text.find('{', i)
+    j = text.find("{", i)
     if j < 0:
         return None
     depth, k, instr, esc = 0, j, False, False
@@ -46,29 +47,29 @@ def _json_after(text: str, key: str):
         if instr:
             if esc:
                 esc = False
-            elif ch == '\\':
+            elif ch == "\\":
                 esc = True
             elif ch == '"':
                 instr = False
         else:
             if ch == '"':
                 instr = True
-            elif ch == '{':
+            elif ch == "{":
                 depth += 1
-            elif ch == '}':
+            elif ch == "}":
                 depth -= 1
                 if depth == 0:
-                    return text[j:k + 1]
+                    return text[j : k + 1]
         k += 1
     return None
 
 
 def extract_cgi_data(html: str):
     """返回 (fixture_text, 解析后 dict)；数据脚本定位用 articleData 做锚（页面另有空 cgiData={}）。"""
-    if 'articleData' not in html:
+    if "articleData" not in html:
         return None, None
     parts = {}
-    for key in ('articleData', 'articleSummaryData', 'detailData'):
+    for key in ("articleData", "articleSummaryData", "detailData"):
         seg = _json_after(html, key)
         if seg is None:
             return None, None
@@ -76,42 +77,51 @@ def extract_cgi_data(html: str):
             parts[key] = json.loads(seg)
         except ValueError:
             return None, None
-    body = ',\n    '.join('%s:\n      %s' % (k, json.dumps(parts[k], ensure_ascii=False))
-                          for k in ('articleData', 'articleSummaryData', 'detailData'))
-    return 'window.wx.cgiData = {\n    %s\n  };\n' % body, parts
+    body = ",\n    ".join(
+        f"{k}:\n      {json.dumps(parts[k], ensure_ascii=False)}"
+        for k in ("articleData", "articleSummaryData", "detailData")
+    )
+    return f"window.wx.cgiData = {{\n    {body}\n  }};\n", parts
 
 
 def main():
     targets = []
     for a in sys.argv[1:]:
-        mid, idx, pub = a.split(':')
+        mid, idx, pub = a.split(":")
         targets.append((mid, int(idx), pub))
     targets = targets or DEFAULT_TARGETS
 
-    tabs = json.load(urllib.request.urlopen('http://127.0.0.1:9222/json', timeout=10))
-    page = [t for t in tabs if t['type'] == 'page' and 'mp.weixin' in t.get('url', '')]
+    tabs = json.load(urllib.request.urlopen("http://127.0.0.1:9222/json", timeout=10))
+    page = [t for t in tabs if t["type"] == "page" and "mp.weixin" in t.get("url", "")]
     if not page:
-        sys.exit('no mp.weixin tab')
-    ws = websocket.create_connection(page[0]['webSocketDebuggerUrl'], timeout=120,
-                                     max_size=200 * 1024 * 1024)
+        sys.exit("no mp.weixin tab")
+    ws = websocket.create_connection(
+        page[0]["webSocketDebuggerUrl"], timeout=120, max_size=200 * 1024 * 1024
+    )
     mid_n = [0]
 
     def run_js(js):
         mid_n[0] += 1
-        ws.send(json.dumps({'id': mid_n[0], 'method': 'Runtime.evaluate',
-                            'params': {'expression': js, 'returnByValue': True,
-                                       'awaitPromise': True}}))
+        ws.send(
+            json.dumps(
+                {
+                    "id": mid_n[0],
+                    "method": "Runtime.evaluate",
+                    "params": {"expression": js, "returnByValue": True, "awaitPromise": True},
+                }
+            )
+        )
         ws.settimeout(90)
         while True:
             m = json.loads(ws.recv())
-            if m.get('id') == mid_n[0]:
-                return m.get('result', {}).get('result', {}).get('value')
+            if m.get("id") == mid_n[0]:
+                return m.get("result", {}).get("result", {}).get("value")
 
-    tok = re.search(r'token=(\d+)', page[0].get('url', ''))
-    tok = tok.group(1) if tok else ''
+    tok = re.search(r"token=(\d+)", page[0].get("url", ""))
+    tok = tok.group(1) if tok else ""
     if not tok:
-        sys.exit('no token in tab url')
-    print('token:', tok[:4] + '...')
+        sys.exit("no token in tab url")
+    print("token:", tok[:4] + "...")
 
     for mid, idx, pub in targets:
         js = """
@@ -120,20 +130,31 @@ def main():
           const t = await res.text();
           return res.status + '|' + t;
         })()""" % (mid, idx, pub, tok)
-        raw = run_js(js) or ''
-        status, _, html = raw.partition('|')
+        raw = run_js(js) or ""
+        status, _, html = raw.partition("|")
         fx, parts = extract_cgi_data(html)
-        if status != '200' or fx is None:
-            print('SKIP %s_%d status=%s parsed=%s len=%d' % (mid, idx, status, fx is not None, len(html)))
+        if status != "200" or fx is None:
+            print(
+                "SKIP %s_%d status=%s parsed=%s len=%d"
+                % (mid, idx, status, fx is not None, len(html))
+            )
             continue
-        path = os.path.join(OUT, 'article_detail_%s_%d.html' % (mid, idx))
-        with open(path, 'w') as f:
+        path = os.path.join(OUT, "article_detail_%s_%d.html" % (mid, idx))
+        with open(path, "w") as f:
             f.write(fx)
-        print('OK %s_%d (%s) -> %d bytes  title=%r  read_uv=%s' % (
-            mid, idx, pub, len(fx), parts['articleData'].get('title', '')[:18],
-            (parts['articleData'].get('article_data_new') or {}).get('read_uv')))
+        print(
+            "OK %s_%d (%s) -> %d bytes  title=%r  read_uv=%s"
+            % (
+                mid,
+                idx,
+                pub,
+                len(fx),
+                parts["articleData"].get("title", "")[:18],
+                (parts["articleData"].get("article_data_new") or {}).get("read_uv"),
+            )
+        )
         time.sleep(2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 下一步（next step）渲染器 —— 把"工具到此为止，人接手从哪开始"写进周报。
 
@@ -21,6 +20,7 @@
     from next_step import render_next_step
     md = render_next_step(advice_dict)
 """
+
 from __future__ import annotations
 
 import re
@@ -53,9 +53,21 @@ _WHY_HUMAN = {
 }
 
 _TIERS = (
-    ("¥99", "首次限时咨询（30 分钟）", "看完报告指出盲点，给 3 条针对你这个号的判断。不交报告，只交判断。同一号仅限一次。"),
-    ("¥499", "单号诊断（24 小时）", "完整 7 节报告 + 逐篇定位 + 不要做什么清单 + 3 轮追问。30 天内升级月度，这 ¥499 全额抵扣。"),
-    ("¥1,999/月", "月度陪跑", "每月 1 次诊断 + 4 次问答 + 月度趋势对比（单次诊断看不出系列是在变好还是变差，只有这项能看）。"),
+    (
+        "¥99",
+        "首次限时咨询（30 分钟）",
+        "看完报告指出盲点，给 3 条针对你这个号的判断。不交报告，只交判断。同一号仅限一次。",
+    ),
+    (
+        "¥499",
+        "单号诊断（24 小时）",
+        "完整 7 节报告 + 逐篇定位 + 不要做什么清单 + 3 轮追问。30 天内升级月度，这 ¥499 全额抵扣。",
+    ),
+    (
+        "¥1,999/月",
+        "月度陪跑",
+        "每月 1 次诊断 + 4 次问答 + 月度趋势对比（单次诊断看不出系列是在变好还是变差，只有这项能看）。",
+    ),
 )
 
 _CONTACT = "ws.kevin@qq.com"
@@ -78,22 +90,30 @@ def render_next_step(adv: dict) -> str:
     lines.append("")
     lines.append(why)
     lines.append("")
-    lines.append("工具能给的都在上面了，每个数字都带分母、能用自己后台复算。"
-                 "剩下的需要有人看一眼你这个号本身——所以有这几档：")
+    lines.append(
+        "工具能给的都在上面了，每个数字都带分母、能用自己后台复算。"
+        "剩下的需要有人看一眼你这个号本身——所以有这几档："
+    )
     lines.append("")
     for price, name, desc in _TIERS:
-        lines.append("- **%s · %s** —— %s" % (price, name, desc))
+        lines.append(f"- **{price} · {name}** —— {desc}")
     lines.append("")
     lines.append("代运营/外包服务商：¥149/号，5 号起 ¥745，报告可白标转给你的客户。")
     lines.append("")
-    lines.append("**我们不承诺阅读量、涨粉数、能不能被推荐**——平台分发不受单方控制，"
-                 "承诺这些就是骗你。我们承诺：每个数字都带分母，你能自己复算。")
+    lines.append(
+        "**我们不承诺阅读量、涨粉数、能不能被推荐**——平台分发不受单方控制，"
+        "承诺这些就是骗你。我们承诺：每个数字都带分母，你能自己复算。"
+    )
     lines.append("")
-    lines.append("要人工版：写信到 <%s>，主题写「诊断」，说明你的号大概多少粉、"
-                 "发了多少篇、现在最想解决的一个问题。24 小时内回，"
-                 "回信里会先问你 1-2 个问题再给判断。" % _CONTACT)
+    lines.append(
+        f"要人工版：写信到 <{_CONTACT}>，主题写「诊断」，说明你的号大概多少粉、"
+        "发了多少篇、现在最想解决的一个问题。24 小时内回，"
+        "回信里会先问你 1-2 个问题再给判断。"
+    )
     lines.append("")
-    lines.append("> 不想留邮箱也行：<https://github.com/ttxs69/mpdt/issues> 在 GitHub 问问题 / 要人工版。")
+    lines.append(
+        "> 不想留邮箱也行：<https://github.com/ttxs69/mpdt/issues> 在 GitHub 问问题 / 要人工版。"
+    )
     lines.append("")
     return "\n".join(lines)
 
@@ -106,16 +126,16 @@ def self_test() -> int:
     for v in ("FAMILY_SPLIT", "FAMILY_SPARK", "BLACKOUT", "NO_SIGNAL"):
         out = render_next_step({"verdict": v, "headline": "x"})
         if not out:
-            fails.append("可执行判定 %s 没渲染下一步" % v)
+            fails.append(f"可执行判定 {v} 没渲染下一步")
             continue
         for need in ("mpdt 到哪一步为止", "¥99", "¥499", "¥1,999", _CONTACT, "不承诺阅读量"):
             if need not in out:
-                fails.append("%s 缺要素: %s" % (v, need))
+                fails.append(f"{v} 缺要素: {need}")
 
     # 负例 1：样本不足 ⇒ 不许出现（否则就是骗人）
     for v in ("INSUFFICIENT", "NORMAL", "", None):
         if render_next_step({"verdict": v, "headline": "x"}):
-            fails.append("非可执行判定 %r 仍渲染了下一步" % v)
+            fails.append(f"非可执行判定 {v!r} 仍渲染了下一步")
 
     # 负例 2：非 dict
     if render_next_step(None) or render_next_step("x"):
@@ -127,7 +147,7 @@ def self_test() -> int:
     out = render_next_step({"verdict": "FAMILY_SPLIT", "headline": "x"})
     for banned in (r"保证\s*涨粉", r"一定\s*(?:能)?被推荐", r"(?<!不)承诺\s*阅读量", r"包涨粉"):
         if re.search(banned, out):
-            fails.append("出现承诺性措辞: %s" % banned)
+            fails.append(f"出现承诺性措辞: {banned}")
     if "不承诺阅读量" not in out:
         fails.append("缺少明确的不承诺声明")
 
@@ -142,4 +162,5 @@ def self_test() -> int:
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(self_test())

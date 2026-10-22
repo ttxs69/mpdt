@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Agent 8 大赛道地图 · 34 天真实数据</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --line:#262b36; --fg:#e6e9ef; --dim:#9aa4b2;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; --gold:#e3b341;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:15px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 90px}
+  h1{font-size:26px;margin:0 0 8px;line-height:1.35}
+  h2{font-size:18px;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .sub{color:var(--dim);font-size:14px;margin-bottom:6px}
+  .hero{background:linear-gradient(135deg,#161b26,#12161d);border:1px solid var(--line);
+        border-radius:12px;padding:20px 22px;margin:18px 0}
+  .hero p{margin:8px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0}
+  .kpi{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
+  .kpi div{flex:1 1 130px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi b{display:block;font-size:22px;line-height:1.3}
+  .kpi span{color:var(--dim);font-size:12.5px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:10px 0}
+  th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:12.5px}
+  td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  code{background:#11151d;border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+       font-size:12.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .bar{height:8px;background:#11151d;border-radius:4px;overflow:hidden;min-width:80px}
+  .bar i{display:block;height:100%;background:linear-gradient(90deg,#388bfd,#58a6ff)}
+  .tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11.5px;
+       border:1px solid var(--line);color:var(--dim);margin-right:5px}
+  .tag.hot{border-color:#5a2a2a;color:var(--bad)}
+  .tag.mid{border-color:#5a4a1e;color:var(--warn)}
+  .tag.low{border-color:#1e4a2a;color:var(--ok)}
+  input{width:100%;padding:11px 13px;border-radius:8px;border:1px solid var(--line);
+        background:#0c0f14;color:var(--fg);font-size:14.5px;font-family:inherit}
+  input:focus{outline:none;border-color:var(--acc)}
+  button{background:var(--acc);color:#08121f;border:0;border-radius:6px;padding:9px 18px;
+         font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+  button.ghost{background:transparent;color:var(--dim);border:1px solid var(--line)}
+  .hit{background:#11151d;border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+  .hit h3{margin:0 0 4px;font-size:15.5px}
+  .hit .meta{color:var(--dim);font-size:12.5px;margin-bottom:6px}
+  .note{color:var(--dim);font-size:13px;border-left:2px solid var(--line);padding-left:12px;margin:12px 0}
+  .foot{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+  .foot a{color:var(--acc)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>AI Agent 生态，其实只有 8 条赛道</h1>
+<p class="sub">34 天真实抓取 · 402 条 GitHub Trending 记录 · 37 个反复上榜的项目逐个人工归类</p>
+
+<div class="hero">
+  <p><b>做 agent 工具最贵的三个问题：</b></p>
+  <p>① 我该做哪一层？　② 这一层挤不挤？　③ 同赛道还有谁在跑？</p>
+  <p style="color:var(--dim);font-size:14px">
+    通用模型回答①时会按技术栈分（"这是 Python 项目"、"这是 RAG 框架"）——因为那正是 README 里写的。
+    这里按<b style="color:var(--fg)">「它替换掉 agent 工作流的哪一步」</b>分，是另一回事。
+  </p>
+</div>
+
+<div class="kpi">
+  <div><b>34</b><span>天连续抓取</span></div>
+  <div><b>402</b><span>条上榜记录</span></div>
+  <div><b>158</b><span>个唯一项目</span></div>
+  <div><b>37</b><span>个高频项目（≥3次）</span></div>
+  <div><b>8</b><span>条赛道</span></div>
+</div>
+
+<h2>8 条赛道 · 拥挤度</h2>
+<p class="sub">拥挤度 = 该赛道项目上榜次数合计 ÷ 项目数。越高说明这格已被反复上榜的项目占住。</p>
+<div id="lanes"></div>
+
+<h2>每个赛道里都有谁</h2>
+<p class="sub">点开看具体项目、上榜次数和星数。星数衡量的是采纳热度，不是"AI readiness"。</p>
+<div id="cats"></div>
+
+<h2>查一下你的项目在哪一格</h2>
+<p class="sub">输入 <code>owner/repo</code>，用上面这 34 天的数据现算。</p>
+<div class="row">
+  <input id="q" placeholder="例如 mattpocock/skills" autocomplete="off">
+  <button id="go">查</button>
+  <button class="ghost" id="eg">看个例子</button>
+</div>
+<div id="res"></div>
+
+<h2>厂商在哪儿</h2>
+<div class="card" id="vendor"></div>
+
+<h2>这个数怎么读</h2>
+<div class="note">
+  <b>拥挤 ≠ 没机会，也不等于有机会。</b><br>
+  拥挤说明<b>需求被验证过</b>（有人反复做、反复上 Trending），但也说明<b>你要的差异化更难</b>。
+  厂商官方占 7/37 = 19%，而 <b>skills 赛道 9 个项目，厂商占 0</b>——那一格民间已经很卷，但官方还没下场。
+</div>
+
+<div class="foot">
+  <p><b>数据来源</b>：GitHub Trending（daily / devops / AI 榜），2026-09-18 ~ 10-22，共 34 天，402 条原始记录一条没删。</p>
+  <p><b>厂商判定</b>：按 owner 是否为厂商组织（不按名字像不像）。</p>
+  <p><b>边界</b>：数据源是英文 Trending feed，<b>中文/小众项目可能整段缺席</b>——查到 0 次不代表项目不好。</p>
+  <p><b>装成 skill（可复算）</b>：<code>npx skills add ttxs69/pi-skills</code>　·　
+     <b>源码与全部原始数据</b>：<a href="https://github.com/ttxs69/pi-skills" target="_blank" rel="noopener">GitHub</a>
+    　·　由「地球online实况」整理</p>
+</div>
+
+</div>
+
+<script>
+const DATA = {"meta":{"days":34,"items":402,"unique":158,"freq_map":37,"cats":8,"vendor_n":7,"vendor_pct":19,"skills_n":9,"skills_vendor_n":0,"range":["20260918","20261022"]},"density":{"skills":6.2,"memory":6.8,"runtime":3.7,"harness":7.3,"orchestration":5.4,"cli":4.0,"vertical":4.5,"vendor":4.2},"per_cat":{"skills":{"mattpocock/skills":{"times":10,"stars":11537},"addyosmani/agent-skills":{"times":8,"stars":4345},"obra/superpowers":{"times":8,"stars":4696},"cathrynlavery/diagram-design":{"times":8,"stars":10121},"cloudflare/security-audit-skill":{"times":6,"stars":14196},"DietrichGebert/ponytail":{"times":6,"stars":8626},"K-Dense-AI/scientific-agent-skills":{"times":4,"stars":3290},"JuliusBrussee/caveman":{"times":3,"stars":1149},"earthtojake/text-to-cad":{"times":3,"stars":1139}},"memory":{"vectorize-io/hindsight":{"times":6,"stars":17124},"thedotmack/claude-mem":{"times":6,"stars":3023},"akitaonrails/ai-memory":{"times":5,"stars":1809},"mksglu/context-mode":{"times":10,"stars":4683}},"runtime":{"coder/coder":{"times":3,"stars":1241},"NVIDIA/OpenShell":{"times":4,"stars":5321},"google/ax":{"times":4,"stars":6600}},"harness":{"affaan-m/ECC":{"times":7,"stars":6861},"ruvnet/ruflo":{"times":5,"stars":2316},"mattpocock/skills":{"times":10,"stars":11537}},"orchestration":{"morluto/rea":{"times":10,"stars":255022},"stablyai/orca":{"times":4,"stars":5107},"mvschwarz/openrig":{"times":5,"stars":2851},"paperclipai/paperclip":{"times":5,"stars":12773},"anomalyco/opencode":{"times":3,"stars":3163}},"cli":{"HKUDS/CLI-Anything":{"times":7,"stars":2623},"BuilderIO/agent-native":{"times":3,"stars":792},"superdesigndev/treg":{"times":3,"stars":1204},"xerj-org/xerj":{"times":3,"stars":3523},"Panniantong/Agent-Reach":{"times":4,"stars":4527}},"vertical":{"MadsLorentzen/ai-job-search":{"times":4,"stars":8351},"dream-num/univer":{"times":8,"stars":7068},"anthropics/knowledge-work-plugins":{"times":6,"stars":2606},"heygen-com/hyperframes":{"times":3,"stars":1556},"lyogavin/airllm":{"times":3,"stars":2428},"alibaba/open-code-review":{"times":3,"stars":5754}},"vendor":{"anthropics/claude-code":{"times":6,"stars":2134},"anthropics/claude-plugins-official":{"times":5,"stars":4514},"cursor/plugins":{"times":3,"stars":778},"google/ax":{"times":4,"stars":6600},"NVIDIA/OpenShell":{"times":4,"stars":5321},"alibaba/open-code-review":{"times":3,"stars":5754}}},"desc":{"cloudflare/security-audit-skill":"A coding-agent skill for multi-phase security audits with independently verified, machine-readable findings","anthropics/claude-code":"Claude Code is an agentic coding tool that lives in your terminal, understands your codebase, and helps you code faster by executing routine tasks, explaining complex code, and handling git workflows - all through natural language commands.","alibaba/open-code-review":"Secure, fast, efficient, battle-tested at Alibaba's scale. Hybrid architecture code review tool: deterministic pipelines + LLM Agent, precise line-level comments, built-in multi-language ruleset (NPE, thread-safety, XSS, SQL injection), OpenAI & Anthropic compatible.","affaan-m/ECC":"The agent harness performance optimization system. Skills, instincts, memory, security, and research-first development for Claude Code, Codex, Opencode, Cursor and beyond.","Tencent/BrowserSkill":"Let AI agents use your real, logged-in browser without interrupting your work. CLI + extension for browser automation across any shell-capable AI agent.","addyosmani/agent-skills":"Production-grade engineering skills for AI coding agents.","TencentCloud/Octop":"A smarter, self-hosted AI assistant — multi-user, multi-agent.","Fission-AI/OpenSpec":"Spec-driven development (SDD) for AI coding assistants.","ankitects/anki":"Anki is a smart spaced repetition flashcard program","anthropics/knowledge-work-plugins":"Open source repository of plugins primarily intended for knowledge workers to use in Claude Cowork","supermemoryai/supermemory":"Memory and context engine + app that is extremely fast, scalable, and can be run fully locally. The Memory API for the AI era.","tradesdontlie/tradingview-mcp":"AI-assisted TradingView chart analysis — connect Claude Code to your TradingView Desktop for personal workflow automation","rustfs/rustfs":"RustFS is an open-source, S3-compatible high-performance object storage system supporting migration and coexistence with other S3-compatible platforms such as MinIO and Ceph.","trycua/cua":"Scale computer-use 2.0 with open-source drivers, cross-OS fleets, and benchmarks for training, evaluation, and data generation.","coder/coder":"Secure environments for developers and their agents","Open-Dev-Society/OpenStock":"OpenStock is an open-source alternative to expensive market platforms. Track real-time prices, set personalized alerts, and explore detailed company insights — built openly, for everyone, forever free.","higgsfield-ai/higgsfield":"Fault-tolerant, highly scalable GPU orchestration, and a machine learning framework designed for training models with billions to trillions of parameters","docling-project/docling":"Get your documents ready for gen AI","cloudflare/quiche":"🥧 Savoury implementation of the QUIC transport protocol and HTTP/3","asciimoo/hister":"Your own search engine","ruanyf/weekly":"科技爱好者周刊，每周五发布","ZuodaoTech/everyone-can-use-english":"人人都能用英语","BuilderIO/agent-native":"A framework for building agentic apps","paperless-ngx/paperless-ngx":"A community-supported supercharged document management system: scan, index and archive all your documents","mihail911/modern-software-dev-assignments":"Assignments for CS146S: The Modern Software Dev (Stanford University Fall 2026/2025)","vercel-labs/json-render":"The Generative UI framework","akitaonrails/ai-memory":"Solution for long term memory for agent coding CLIs and to facilitate handoff between different agent vendors","mvt-project/mvt":"MVT (Mobile Verification Toolkit) helps with conducting forensics of mobile devices in order to find signs of a potential compromise.","zhouxiaoka/autoclip":"AutoClip : AI-powered video clipping and highlight generation · 一款智能高光提取与剪辑的二创工具","Crosstalk-Solutions/project-nomad":"Project NOMAD is an offline-first knowledge and education server. Wikipedia, thousands of books, courses, maps, and optional local AI, all running on hardware you own with no internet required.","yynxxxxx/Codex-X":"OpenAI Codex 桌面端/CLI 的可视化管理工具，具有Provider/API 切换、会话同步、提示词注入、Skills/MCP 管理、TOML 配置可视化的跨平台工具。","agent-substrate/substrate":"Agent Substrate: the core system","dream-num/univer":"The Office Harness for AI Agents — Spreadsheets, Docs, Slides, Canvas, Relational Tables, and PDF in one runtime.","davila7/claude-code-templates":"CLI tool for configuring and monitoring Claude Code","google/ax":"Google's open agentic orchestration runtime","superdesigndev/treg":"OpenRouter for agent tools. Join community here: https://discord.gg/6mQYYfFMAn","browser-use/video-use":"Edit videos with coding agents","obra/superpowers":"An agentic skills framework & software development methodology that works.","strands-agents/harness-sdk":"Build an agent harness and control it end-to-end. Open-source SDK for production AI agents in Python & TypeScript - any model, any cloud.","HKUDS/CLI-Anything":"\"CLI-Anything: Making ALL Software Agent-Native\" -- CLI-Hub: https://clianything.cc/","pbakaus/impeccable":"The design language that makes your AI harness better at design.","rohitg00/ai-engineering-from-scratch":"Learn it. Build it. Ship it for others.","vectorize-io/hindsight":"Hindsight: Agent Memory That Learns","NVIDIA/Model-Optimizer":"A unified library of SOTA model optimization techniques like quantization, distillation, pruning, neural architecture search, speculative decoding, etc. It compresses deep learning models for downstream deployment frameworks like TensorRT-LLM, TensorRT, vLLM, etc. to optimize inference speed.","FxEmbed/FxEmbed":"Fix X/Twitter and Bluesky embeds! Use multiple images, videos, polls, translations and more on Discord, Telegram and others","julyx10/lap":"An offline-first photo manager for large local libraries","paperclipai/paperclip":"The open-source app everyone uses to manage agents at work","anthropics/claude-plugins-official":"Official, Anthropic-managed directory of high quality Claude Code Plugins.","mattpocock/skills":"Skills for Real Engineers. Straight from my .agents directory.","anthropics/skills":"Public repository for Agent Skills","androoAGI/starnet":"A living pixel-art station where real AI agents do real work. Local-first desktop agent harness - bring your own key, watch your crew actually run.","derv82/wifit3":"Wifite but USB-only & cross-platform.","kelseyhightower/kubernetes-the-hard-way":"Bootstrap Kubernetes the hard way. No scripts.","shy3130/tick-stock-panel":"TSP自托管、零运维的 A 股「选股 + 监控 + 回测」量化工作台 | LLM能力驱使策略定制+个股分析+复盘 | 自由接入第三方数据源与个性化扩展数据 | 个人开源","tensorflow/tensorflow":"An Open Source Machine Learning Framework for Everyone","openbao/openbao":"OpenBao is a software solution to manage, store, and distribute sensitive data including secrets, certificates, and keys.","block/buzz":"A hive mind communication platform","microsoft/vscode":"Visual Studio Code","zhaoxuya520/reverse-skill":"Reverse Engineering / Authorized Penetration Testing / Security Research Skill Router Pack AI-powered routing + On-demand toolchain bootstrapping + Self-evolving knowledge base Supports Claude Code, Kiro, Cursor, Cline, and other AI coding clients 逆向/渗透/安全技能路由包 - AI 自动路由 + 按需自举工具链 + 自动进化经验库 | 支持 Claude Code / Kiro / Cursor / Cline 等代码 AI 客户端","llvm/llvm-project":"The LLVM Project is a collection of modular and reusable compiler and toolchain technologies.","actions/runner-images":"GitHub Actions runner images","debpalash/VoiceStudio":"VoiceStudio is the open-source, fully-local ElevenLabs alternative — voice cloning, voice design, video dubbing, dictation, transcription & audiobook creation in 646 languages.","InfinityLoop1308/PipePipe":"An open-source Android app to let you browse YouTube and other services freely.","vercel-labs/scriptc":"TypeScript-to-Native Compiler","mvschwarz/openrig":"Build your own network of agents from Claude Code, Codex and Pi: persistent teams with roles, shared context and owned work.","willfaust/Madeira":"Run x86-64 Windows PC games on jailed iOS via FEX-Emu + Wine + DXMT","NawfalMotii79/PLFM_RADAR":"Open-source, low-cost 10.5 GHz PLFM phased array RADAR system","cs341-illinois/coursebook":"Open Source Introductory Systems Programming Textbook for the University of Illinois","byoungd/up":"An advanced guide which might benefit you a lot 🎉 . 韩先凯的人生进阶指南 人生进阶指南 离谱的人生 人生进阶 AI学习 AI指南 韩先凯的AI学习指南 英语学习指南/英语学习教程/英语学习/学英语","NVIDIA/OpenShell":"OpenShell is the safe, private runtime for autonomous AI agents.","t8y2/dbx":"25 MB lightweight cross-platform database client for 100+ databases, including MySQL, PostgreSQL, SQLite, Redis, MongoDB, DuckDB, SQL Server, and Dameng. Built-in AI, MCP Server, CLI, desktop and Docker. | 轻量级跨平台数据库管理工具，支持 MySQL、PostgreSQL、SQLite、Redis、MongoDB、达梦等 100+ 数据库，提供桌面端、Docker、CLI、内置 AI 助手和 MCP。","oblien/openship":"Self-hosted deployment platform","averygan/reclip":"Download videos from almost any website. Lightweight, self-hosted media downloader with a clean web UI.","VectifyAI/PageIndex":"📑 PageIndex: Document Index for Vectorless, Reasoning-based RAG","mksglu/context-mode":"Context window optimization for AI coding agents. Sandboxes tool output (98% reduction), persists session memory, and enforces routing across 17 platforms via MCP + hooks.","DietrichGebert/ponytail":"Makes your AI agent think like the laziest senior dev in the room. The best code is the code you never wrote.","harry0703/MoneyPrinterTurbo":"利用 AI 大模型和自动化工作流，根据主题或关键词一键生成高清短视频。Generate HD short videos from a topic or keyword with an automated AI workflow.","openclaw/openclaw":"The AI that really does things. Any OS. Any Platform. The lobster way. 🦞","ComposioHQ/awesome-claude-skills":"A curated list of awesome Claude Skills, resources, and tools for customizing Claude AI workflows","heygen-com/hyperframes":"Write HTML. Render video. Built for agents.","firebase/firebase-ios-sdk":"Firebase SDK for Apple App Development","modelcontextprotocol/servers":"Model Context Protocol Servers","cursor/plugins":"Cursor plugin specification and official plugins","earendil-works/pi":"AI agent toolkit: unified LLM API, agent loop, TUI, coding agent CLI","tile-ai/tilelang":"Domain-specific language designed to streamline the development of high-performance GPU/CPU/Accelerators kernels","pablostanley/yoinks":"yoink any video from your terminal. no shady ads.","HunxByts/GhostTrack":"Useful tool to track location or mobile number","Panniantong/Agent-Reach":"Give your AI agent eyes to see the entire internet. Read & search Twitter, Reddit, YouTube, GitHub, Bilibili, XiaoHongShu — one CLI, zero API fees.","JuliusBrussee/caveman":"🪨 why use many token when few token do trick. Viral skill + proxy for coding agents that cuts 65% of tokens by talking like a caveman.","coreyhaines31/marketingskills":"Marketing skills for Claude Code and AI agents. CRO, copywriting, SEO, analytics, and growth engineering.","google/skills":"Agent Skills for Google products and technologies","getsentry/sentry":"Developer-first error tracking and performance monitoring","colbymchenry/codegraph":"Pre-indexed code knowledge graph, auto syncs on code changes, for Claude Code, Codex, Gemini, Cursor, OpenCode, AntiGravity, Kiro, CoPilot, and Hermes Agent — fewer tokens, fewer tool calls, 100% local","Effect-TS/effect":"Build production-ready applications in TypeScript","thedotmack/claude-mem":"Persistent Context Across Sessions for Every Agent – Captures everything your agent does during sessions, compresses it with AI, and injects relevant context back into future sessions. Works with Claude Code, OpenClaw, Codex, Gemini, Hermes, Copilot, OpenCode + More","cloudflare/cloudflare-os":"Agent workspace built on Cloudflare Workers for creating documents, building apps, and running agents with your company’s context and systems.","tester-army/e2e":"Next generation e2e testing framework for web and mobile apps.","earthtojake/text-to-cad":"Give your agent CAD superpowers.","calesthio/OpenMontage":"World's first open-source, agentic video production system. 12 production pipelines, 100+ tools, 700+ agent skill and production-knowledge files. Turn your AI coding assistant into a full video production studio.","caddyserver/caddy":"Fast and extensible multi-platform HTTP/1-2-3 web server with automatic HTTPS","michael-denyer/pstack-claude":"Claude Code, Codex, Pi, OpenCode, Gemini, and Prime Agent versions of Poteto's pstack. Rigorous agent workflows with Cursor primitives translated for other harnesses.","boykopovar/AnyPS5":"Tool for automatic PS5 executables porting to Linux and Windows","DuarteSantos8/openGym":"Self-hosted gym & body-weight tracker — plan routines, log workouts (supersets, warm-ups, cardio), see which muscles are trained, fatigued or detrained, import from FitNotes/Strong/Hevy, passkey login. Your data, your server.","Stremio/stremio-web":"Stremio - Freedom to Stream","msitarzewski/agency-agents":"A complete AI agency at your fingertips - From frontend wizards to Reddit community ninjas, from whimsy injectors to reality checkers. Each agent is a specialized expert with personality, processes, and proven deliverables.","M-Abozaid/esp32-c3-adblock":"Pi-hole-class DNS ad-blocker on a $2 ESP32-C3 (no PSRAM): 537k domains as 40-bit FNV-1a hashes in flash, binary-searched. UDP DNS sinkhole + web dashboard. https://youtube.com/shorts/RaxszOUMi8E?feature=share","ayghri/i-have-adhd":"A skill to stop your coding agent from burying the answer. ADHD-friendly output.","morluto/rea":"Reverse engineer anything with agents, from app behavior down to native binaries.","deepseek-ai/DeepGEMM":"DeepGEMM: clean and efficient BLAS kernel library on GPU","cathrynlavery/diagram-design":"Editorial diagram design for Claude Code, Codex, GitHub Copilot, Cursor, Factory Droid, and Pi. 44 diagram types. Self-contained HTML + SVG. No shadows. No Mermaid slop.","EpicGames/raddebugger":"A native, user-mode, multi-process, graphical debugger.","manaflow-ai/cmux":"Open source Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents. Built for multitasking, organization, and programmability.","storytold/artcraft":"ArtCraft is an intentional crafting engine for artists, designers, and filmmakers","liquidslr/system-design-notes":"Notes of the book System Desgin Interview - An Insider's Guide","BerriAI/litellm":"The fastest, litest AI Gateway. Rust core with Python SDK. Call 100+ LLM APIs in OpenAI (or native) format with cost tracking, guardrails, load balancing, and logging [Bedrock, Azure, OpenAI, Anthropic, OpenAI, VertexAI, vLLM, Nvidia NIM]","Robbyant/lingbot-map":"[ECCV 2026 Best Paper Award Candidate] LingBot-Map: Geometric Context Transformer for Streaming 3D Reconstruction","twostraws/SwiftUI-Agent-Skill":"SwiftUI agent skill for Claude Code, Codex, and other AI tools.","flutter/flutter":"Flutter makes it easy and fast to build beautiful apps for mobile and beyond","hugohe3/ppt-master":"AI turns documents or topics into real, native PowerPoint decks—with native shapes, transitions and animations, data-backed charts and tables on demand, audio narration from speaker notes, and support for your own .pptx templates. · by Hugo He","pytorch/pytorch":"Tensors and Dynamic neural networks in Python with strong GPU acceleration","huggingface/transformers":"🤗 Transformers: the model-definition framework for state-of-the-art machine learning models in text, vision, audio, and multimodal models, for both inference and training.","multica-ai/andrej-karpathy-skills":"A single CLAUDE.md file to improve Claude Code behavior, derived from Andrej Karpathy's observations on LLM coding pitfalls.","bilawalsidhu/gods-eye-view":"A spy satellite simulator in your browser, except the data is real. Live open source spatial intelligence on a photorealistic 3D globe.","lyogavin/airllm":"AirLLM 2.8T LLM inference with single 4GB GPU","chrislgarry/Apollo-11":"Original Apollo 11 Guidance Computer (AGC) source code for the command and lunar modules.","open-webui/open-webui":"User-friendly AI Interface (Supports Ollama, OpenAI API, ...)","microsoft/BitNet":"Official inference framework for 1-bit LLMs","Alishahryar1/free-claude-code":"Use Claude Code, Codex, VSCode, Pi, and OpenCode (and 6 other harnesses) for free (1.3B+ free tokens) from your terminal, app, IDE, or phone, and now from the browser with native browser sessions (multi-harness + multi-model) like OpenClaw (voice supported + ToS friendly)","vercel-labs/skills":"The open agent skills tool - npx skills","xtool-org/xtool":"Cross-platform Xcode replacement. Build and deploy iOS apps with SwiftPM on Linux, Windows, macOS.","nvm-sh/nvm":"Node Version Manager - POSIX-compliant bash script to manage multiple active node.js versions.","K-Dense-AI/scientific-agent-skills":"Turn any AI agent into an AI Scientist. The #1 Agent Skills library for science, used by 250,000+ scientists worldwide. 177 ready-to-use validated skills plus 100+ scientific databases covering biology, chemistry, medicine, and drug discovery. Compatible with Cursor, Claude Code, Codex, Pi, Antigravity, and the open Agent Skills standard.","ifixai-ai/iFixAi":"Independent Auditing of AI Agents. Run by human or the agent itself, to answer the most crucial question in the AI Agent Economy. Is the agent doing what is supposed to do? With iFixAi you can have this answer in less than 120 seconds.","vxcontrol/pentagi":"Fully autonomous AI Agents system capable of performing complex penetration testing tasks","rust-lang/rust":"Empowering everyone to build reliable and efficient software.","ntdevlabs/tiny11builder":"WinUI app for building smaller, customized Windows 11 images.","NationalSecurityAgency/ghidra":"Ghidra is a software reverse engineering (SRE) framework","ruvnet/ruflo":"🌊 The original agent harness. Deploy intelligent multi-player swarms, coordinate autonomous workflows, and build conversational AI systems. Features adaptive memory, self-learning intelligence, federation, vector RAG integration, and native Claude Code / Codex / Hermes and many more Integrated","lightseekorg/tokenspeed":"TokenSpeed is a speed-of-light LLM inference engine.","xerj-org/xerj":"XERJ is the new way for AI to search data. Its autoindex capability activates agents to know your data without the token waste of grep (1974 tool). One command indexes code, docs, logs and PDFs for search, RAG, security audits and agent memory, using 40x fewer tokens than grep. It’s durable and can replace ElasticSearch saving you x10 infra costs.","MadsLorentzen/ai-job-search":"The job search that runs on your machine. AI job application framework built on Claude Code: evaluate postings, tailor CVs, write cover letters, prep interviews. Fork it and own it.","hmjz100/LinkSwift":"一个基于 JavaScript 的网盘文件下载地址获取工具。基于【网盘直链下载助手】修改 ，支持 百度网盘 / 阿里云盘 / 中国移动云盘 / 天翼云盘 / 迅雷云盘 / 夸克网盘 / UC网盘 / 123云盘 八大网盘","stablyai/orca":"Orca is the place for working with a fleet of agents (e.g. Grok Bot, Claude Code). Run any coding agent with your own subscription. Available on desktop, mobile and remote runtime.","anomalyco/opencode":"The open source coding agent.","mlabonne/llm-course":"Course to get into Large Language Models (LLMs) with roadmaps and Colab notebooks.","Kruk2/jasna":"Video restoration tool","Comfy-Org/ComfyUI":"The most powerful and modular diffusion model GUI, api and backend with a graph/nodes interface. The fastest local inference engine in the world.","headroomlabs-ai/headroom":"Compress tool outputs, logs, files, and RAG chunks before they reach the LLM. 20% fewer tokens for coding agents, 60-95% fewer tokens for JSON, same answers. Library, proxy, MCP server.","shiyu-coder/Kronos":"Kronos: A Foundation Model for the Language of Financial Markets","vllm-project/vllm":"A high-throughput and memory-efficient inference and serving engine for LLMs","supabase/supabase":"The Postgres development platform. Supabase gives you a dedicated Postgres database to build your web, mobile, and AI applications.","twentyhq/twenty":"The open alternative to Salesforce, designed for AI.","Graphify-Labs/graphify":"Turn any codebase, with its docs, SQL schemas, configs, and PDFs, into a queryable knowledge graph. A /graphify skill for Claude Code, Cursor, Codex, and Gemini CLI: local deterministic AST parsing, every edge explained, no vector store."},"all":{"cloudflare/security-audit-skill":{"times":6,"stars":14196},"anthropics/claude-code":{"times":6,"stars":2134},"alibaba/open-code-review":{"times":3,"stars":5754},"affaan-m/ECC":{"times":7,"stars":6861},"Tencent/BrowserSkill":{"times":2,"stars":null},"addyosmani/agent-skills":{"times":8,"stars":4345},"TencentCloud/Octop":{"times":2,"stars":null},"Fission-AI/OpenSpec":{"times":2,"stars":null},"ankitects/anki":{"times":2,"stars":null},"anthropics/knowledge-work-plugins":{"times":6,"stars":2606},"supermemoryai/supermemory":{"times":2,"stars":null},"tradesdontlie/tradingview-mcp":{"times":2,"stars":null},"rustfs/rustfs":{"times":2,"stars":null},"trycua/cua":{"times":4,"stars":null},"coder/coder":{"times":3,"stars":1241},"Open-Dev-Society/OpenStock":{"times":4,"stars":null},"higgsfield-ai/higgsfield":{"times":2,"stars":null},"docling-project/docling":{"times":1,"stars":null},"cloudflare/quiche":{"times":2,"stars":null},"asciimoo/hister":{"times":1,"stars":null},"ruanyf/weekly":{"times":2,"stars":null},"ZuodaoTech/everyone-can-use-english":{"times":1,"stars":null},"BuilderIO/agent-native":{"times":3,"stars":792},"anthropics/financial-services":{"times":5,"stars":null},"paperless-ngx/paperless-ngx":{"times":1,"stars":null},"mihail911/modern-software-dev-assignments":{"times":1,"stars":null},"vercel-labs/json-render":{"times":1,"stars":null},"akitaonrails/ai-memory":{"times":5,"stars":1809},"mvt-project/mvt":{"times":4,"stars":null},"zhouxiaoka/autoclip":{"times":1,"stars":null},"Crosstalk-Solutions/project-nomad":{"times":1,"stars":null},"yynxxxxx/Codex-X":{"times":1,"stars":null},"agent-substrate/substrate":{"times":2,"stars":null},"dream-num/univer":{"times":8,"stars":7068},"davila7/claude-code-templates":{"times":2,"stars":null},"google/ax":{"times":4,"stars":6600},"superdesigndev/treg":{"times":3,"stars":1204},"browser-use/video-use":{"times":1,"stars":null},"obra/superpowers":{"times":8,"stars":4696},"strands-agents/harness-sdk":{"times":2,"stars":null},"HKUDS/CLI-Anything":{"times":7,"stars":2623},"pbakaus/impeccable":{"times":5,"stars":null},"rohitg00/ai-engineering-from-scratch":{"times":5,"stars":null},"vectorize-io/hindsight":{"times":6,"stars":17124},"NVIDIA/Model-Optimizer":{"times":2,"stars":null},"FxEmbed/FxEmbed":{"times":1,"stars":null},"julyx10/lap":{"times":1,"stars":null},"paperclipai/paperclip":{"times":5,"stars":12773},"anthropics/claude-plugins-official":{"times":5,"stars":4514},"mattpocock/skills":{"times":10,"stars":11537},"anthropics/skills":{"times":1,"stars":null},"androoAGI/starnet":{"times":1,"stars":null},"derv82/wifit3":{"times":1,"stars":null},"kelseyhightower/kubernetes-the-hard-way":{"times":1,"stars":null},"shy3130/tick-stock-panel":{"times":1,"stars":null},"tensorflow/tensorflow":{"times":2,"stars":null},"openbao/openbao":{"times":1,"stars":null},"block/buzz":{"times":1,"stars":null},"microsoft/vscode":{"times":1,"stars":null},"zhaoxuya520/reverse-skill":{"times":1,"stars":null},"llvm/llvm-project":{"times":1,"stars":null},"anthropics/claude-code-action":{"times":1,"stars":null},"actions/runner-images":{"times":1,"stars":null},"debpalash/VoiceStudio":{"times":10,"stars":null},"InfinityLoop1308/PipePipe":{"times":1,"stars":null},"vercel-labs/scriptc":{"times":1,"stars":null},"mvschwarz/openrig":{"times":5,"stars":2851},"willfaust/Madeira":{"times":2,"stars":null},"NawfalMotii79/PLFM_RADAR":{"times":1,"stars":null},"cs341-illinois/coursebook":{"times":2,"stars":null},"byoungd/up":{"times":2,"stars":null},"NVIDIA/OpenShell":{"times":4,"stars":5321},"t8y2/dbx":{"times":1,"stars":null},"oblien/openship":{"times":1,"stars":null},"averygan/reclip":{"times":1,"stars":null},"VectifyAI/PageIndex":{"times":1,"stars":null},"mksglu/context-mode":{"times":10,"stars":4683},"DietrichGebert/ponytail":{"times":6,"stars":8626},"harry0703/MoneyPrinterTurbo":{"times":1,"stars":null},"openclaw/openclaw":{"times":1,"stars":null},"ComposioHQ/awesome-claude-skills":{"times":1,"stars":null},"heygen-com/hyperframes":{"times":3,"stars":1556},"firebase/firebase-ios-sdk":{"times":2,"stars":null},"modelcontextprotocol/servers":{"times":1,"stars":null},"cursor/plugins":{"times":3,"stars":778},"earendil-works/pi":{"times":1,"stars":null},"tile-ai/tilelang":{"times":1,"stars":null},"pablostanley/yoinks":{"times":1,"stars":null},"HunxByts/GhostTrack":{"times":1,"stars":null},"Panniantong/Agent-Reach":{"times":4,"stars":4527},"JuliusBrussee/caveman":{"times":3,"stars":1149},"coreyhaines31/marketingskills":{"times":2,"stars":null},"google/skills":{"times":1,"stars":null},"getsentry/sentry":{"times":2,"stars":null},"colbymchenry/codegraph":{"times":1,"stars":null},"Effect-TS/effect":{"times":1,"stars":null},"pingdotgg/t3code":{"times":3,"stars":null},"thedotmack/claude-mem":{"times":6,"stars":3023},"cloudflare/cloudflare-os":{"times":2,"stars":null},"tester-army/e2e":{"times":4,"stars":null},"earthtojake/text-to-cad":{"times":3,"stars":1139},"calesthio/OpenMontage":{"times":2,"stars":null},"caddyserver/caddy":{"times":2,"stars":null},"michael-denyer/pstack-claude":{"times":1,"stars":null},"boykopovar/AnyPS5":{"times":7,"stars":null},"DuarteSantos8/openGym":{"times":3,"stars":null},"Stremio/stremio-web":{"times":1,"stars":null},"msitarzewski/agency-agents":{"times":2,"stars":null},"M-Abozaid/esp32-c3-adblock":{"times":1,"stars":null},"ayghri/i-have-adhd":{"times":2,"stars":null},"morluto/rea":{"times":10,"stars":255022},"deepseek-ai/DeepGEMM":{"times":1,"stars":null},"cathrynlavery/diagram-design":{"times":8,"stars":10121},"EpicGames/raddebugger":{"times":2,"stars":null},"manaflow-ai/cmux":{"times":1,"stars":null},"storytold/artcraft":{"times":6,"stars":null},"liquidslr/system-design-notes":{"times":1,"stars":null},"BerriAI/litellm":{"times":1,"stars":null},"Robbyant/lingbot-map":{"times":1,"stars":null},"twostraws/SwiftUI-Agent-Skill":{"times":1,"stars":null},"flutter/flutter":{"times":1,"stars":null},"hugohe3/ppt-master":{"times":1,"stars":null},"pytorch/pytorch":{"times":2,"stars":null},"huggingface/transformers":{"times":1,"stars":null},"multica-ai/andrej-karpathy-skills":{"times":1,"stars":null},"bilawalsidhu/gods-eye-view":{"times":3,"stars":null},"lyogavin/airllm":{"times":3,"stars":2428},"chrislgarry/Apollo-11":{"times":1,"stars":null},"open-webui/open-webui":{"times":1,"stars":null},"microsoft/BitNet":{"times":1,"stars":null},"Alishahryar1/free-claude-code":{"times":1,"stars":null},"vercel-labs/skills":{"times":1,"stars":null},"xtool-org/xtool":{"times":2,"stars":null},"nvm-sh/nvm":{"times":1,"stars":null},"K-Dense-AI/scientific-agent-skills":{"times":4,"stars":3290},"ifixai-ai/iFixAi":{"times":1,"stars":null},"vxcontrol/pentagi":{"times":1,"stars":null},"rust-lang/rust":{"times":1,"stars":null},"ntdevlabs/tiny11builder":{"times":1,"stars":null},"NationalSecurityAgency/ghidra":{"times":2,"stars":null},"ruvnet/ruflo":{"times":5,"stars":2316},"lightseekorg/tokenspeed":{"times":1,"stars":null},"xerj-org/xerj":{"times":3,"stars":3523},"android/skills":{"times":3,"stars":null},"MadsLorentzen/ai-job-search":{"times":4,"stars":8351},"hmjz100/LinkSwift":{"times":1,"stars":null},"stablyai/orca":{"times":4,"stars":5107},"anomalyco/opencode":{"times":3,"stars":3163},"mlabonne/llm-course":{"times":1,"stars":null},"Kruk2/jasna":{"times":2,"stars":null},"Comfy-Org/ComfyUI":{"times":3,"stars":null},"headroomlabs-ai/headroom":{"times":2,"stars":null},"withmarbleapp/os-taxonomy":{"times":1,"stars":null},"shiyu-coder/Kronos":{"times":2,"stars":null},"vllm-project/vllm":{"times":1,"stars":null},"supabase/supabase":{"times":1,"stars":null},"twentyhq/twenty":{"times":1,"stars":null},"Graphify-Labs/graphify":{"times":1,"stars":null}}};
+const CAT_CN = {
+  skills:["skills","给 agent 装技能包"],
+  memory:["memory","跨会话记忆"],
+  runtime:["runtime","安全执行环境"],
+  harness:["harness","agent 的骨架/外壳"],
+  orchestration:["编排","多 agent 调度"],
+  cli:["CLI 化","把软件变成 agent 可调"],
+  vertical:["垂直场景","解决一个具体的活儿"],
+  vendor:["厂商官方","官方自有栈"]
+};
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = n => n==null?"—":n.toLocaleString("en-US");
+const maxD = Math.max(...Object.values(DATA.density));
+
+// 拥挤度条
+document.getElementById("lanes").innerHTML = Object.entries(DATA.density)
+  .sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
+    const cn=CAT_CN[k]||[k,""];
+    const lvl = v>=6.5?"hot":(v>=4.5?"mid":"low");
+    const word = v>=6.5?"挤":(v>=4.5?"中":"相对空");
+    const n = (DATA.per_cat[k]||{});
+    const cnt = Object.keys(n).length;
+    return `<div class="card" style="padding:12px 16px">
+      <div class="row" style="justify-content:space-between">
+        <div><b>${esc(cn[0])}</b> <span style="color:var(--dim)">${esc(cn[1])}</span>
+          <span class="tag ${lvl}">${word}</span>
+          <span style="color:var(--dim);font-size:13px">${cnt} 个项目</span></div>
+        <div style="text-align:right;white-space:nowrap">
+          <b>${v}</b> <span style="color:var(--dim);font-size:12.5px">次/项目</span>
+          <div class="bar" style="margin-top:4px"><i style="width:${Math.round(v/maxD*100)}%"></i></div>
+        </div>
+      </div></div>`;
+  }).join("");
+
+// 赛道明细
+document.getElementById("cats").innerHTML = Object.entries(DATA.per_cat)
+  .sort((a,b)=>DATA.density[b[0]]-DATA.density[a[0]]).map(([k,members])=>{
+    const cn=CAT_CN[k]||[k,""];
+    const rows = Object.entries(members).sort((a,b)=>b[1].times-a[1].times).map(([s,m])=>{
+      const d=DATA.desc[s]||"";
+      return `<tr><td><code>${esc(s)}</code></td><td class="n">${m.times}</td>
+        <td class="n">${fmt(m.stars)}</td>
+        <td style="color:var(--dim);font-size:12.5px">${esc(d.slice(0,110))}</td></tr>`;
+    }).join("");
+    return `<div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:6px">
+        <b>${esc(cn[0])} <span style="color:var(--dim);font-weight:400">${esc(cn[1])}</span></b>
+        <span style="color:var(--dim);font-size:13px">拥挤度 ${DATA.density[k]}</span>
+      </div>
+      <table><thead><tr><th>项目</th><th style="text-align:right">上榜</th><th style="text-align:right">星</th><th>简介</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  }).join("");
+
+// 厂商
+document.getElementById("vendor").innerHTML =
+  `<p>厂商官方项目 <b>${DATA.meta.vendor_n} / ${DATA.meta.freq_map}</b> = <b>${DATA.meta.vendor_pct}%</b></p>
+   <p><b>skills 赛道</b>（${DATA.meta.skills_n} 个项目）里厂商占 <b>${DATA.meta.skills_vendor_n}</b> —— 那一格官方还没下场，但民间已经很卷。</p>
+   <p style="color:var(--dim);font-size:13.5px">判定依据：owner 是否为厂商组织，不是看名字像不像。</p>`;
+
+// 查询
+function lookup(repo){
+  repo=(repo||"").trim().replace(/^https?:\/\/github\.com\//,"").replace(/\/$/,"");
+  if(!repo) return null;
+  const m=repo.split("/");
+  if(m.length<2) return {err:"格式不对，用 owner/repo 这样的写法"};
+  const key=m[0]+"/"+m[1];
+  const a=DATA.all[key];
+  // 找它在哪个赛道
+  let cat=null,times=0;
+  for(const [k,members] of Object.entries(DATA.per_cat)){
+    if(members[key]){cat=k;times=members[key].times;break;}
+  }
+  return {key, hit:!!a, times:a?a.times:0, stars:a?a.stars:null, cat, desc:DATA.desc[key]||""};
+}
+function render(r){
+  const res=document.getElementById("res");
+  if(!r){res.innerHTML="";return;}
+  if(r.err){res.innerHTML=`<div class="hit"><b>${esc(r.err)}</b></div>`;return;}
+  if(!r.hit){
+    res.innerHTML=`<div class="hit">
+      <h3><code>${esc(r.key)}</code> 34 天里 0 次上榜</h3>
+      <div class="meta">这不代表项目不好 —— 英文 Trending feed 不覆盖所有项目，中文/小众项目常整段缺席。</div>
+      <div style="color:var(--dim);font-size:13.5px">结论：<b>不能用「有没有上 Trending」判断该不该继续。</b></div>
+    </div>`;
+    return;
+  }
+  const cn = r.cat ? (CAT_CN[r.cat]||[r.cat,""]) : null;
+  const rivals = r.cat ? Object.entries(DATA.per_cat[r.cat]).sort((a,b)=>b[1].times-a[1].times) : [];
+  res.innerHTML=`<div class="hit">
+    <h3><code>${esc(r.key)}</code> 上榜 ${r.times} 次${r.stars!=null?` · ★${fmt(r.stars)}`:""}</h3>
+    ${cn?`<div class="meta">在高频地图里 · 属于 <b>${esc(cn[0])}</b>（${esc(cn[1])}）· 该赛道拥挤度 ${DATA.density[r.cat]}</div>`:
+         `<div class="meta">在长尾（&lt;3 次）</div>`}
+    ${r.desc?`<div style="color:var(--dim);font-size:13px;margin:6px 0">${esc(r.desc.slice(0,180))}</div>`:""}
+    ${rivals.length?`<div style="margin-top:10px;font-size:13px"><b>同赛道在抢：</b><br>`+
+      rivals.map(([s,m])=>`· ${m.times} 次 <code>${esc(s)}</code>${m.stars!=null?` · ★${fmt(m.stars)}`:""}`).join("<br>")+
+      `</div>`:""}
+  </div>`;
+}
+document.getElementById("go").onclick=()=>render(lookup(document.getElementById("q").value));
+document.getElementById("q").onkeydown=e=>{if(e.key==="Enter")document.getElementById("go").click()};
+document.getElementById("eg").onclick=()=>{
+  document.getElementById("q").value="mattpocock/skills";
+  render(lookup("mattpocock/skills"));
+};
+</script>
+</body>
+</html>

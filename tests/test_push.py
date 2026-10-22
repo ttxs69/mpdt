@@ -264,5 +264,120 @@ class TestDeliveryVerification(PushTestBase):
         self.assertIn("未验证收件方实际收到", res["note"])
 
 
+class LoadEnvTests(unittest.TestCase):
+    """`_load_env()` 的确定性测试（R68）。
+
+    为什么单独写：原来的测试把 MP_DOTENV 指向一个**不存在**的文件，
+    于是 "解析 dotenv" 那 6 行（注释/空行/无等号/引号剥离/setdefault）**永远不执行**。
+    本地能覆盖到，纯粹是因为开发机上有 ~/.hermes/.env —— 换到 CI（没有这个文件）
+    覆盖率立刻掉 13 行，门就红在"机器不同"上，而不是"代码不对"。
+
+    ⇒ 环境依赖的分支必须靠显式 fixture 覆盖，不能靠开发机的巧合。
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved = {k: os.environ.get(k) for k in ("MP_DOTENV", "MPDT_SMTP_HOST")}
+
+    def tearDown(self) -> None:
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        self._tmp.cleanup()
+
+    def test_parses_dotenv_lines(self) -> None:
+        p = Path(self._tmp.name) / ".env"
+        p.write_text(
+            "# 注释行要被跳过\n"
+            "\n"
+            "   \n"
+            "NOVALUE_LINE\n"
+            'MPDT_SMTP_HOST="smtp.quoted.example"\n'
+            "MPDT_SMTP_PORT='465'\n",
+            encoding="utf-8",
+        )
+        os.environ["MP_DOTENV"] = str(p)
+        os.environ.pop("MPDT_SMTP_HOST", None)
+        env = push._load_env()
+        # 引号必须被剥掉
+        self.assertEqual(env.get("MPDT_SMTP_HOST"), "smtp.quoted.example")
+        self.assertEqual(env.get("MPDT_SMTP_PORT"), "465")
+
+    def test_existing_env_wins_over_dotenv(self) -> None:
+        """setdefault 语义：已经在环境里的值不能被文件覆盖（部署时优先环境变量）。"""
+        p = Path(self._tmp.name) / ".env"
+        p.write_text("MPDT_SMTP_HOST=from-file\n", encoding="utf-8")
+        os.environ["MP_DOTENV"] = str(p)
+        os.environ["MPDT_SMTP_HOST"] = "from-env"
+        self.assertEqual(push._load_env().get("MPDT_SMTP_HOST"), "from-env")
+
+    def test_alias_fills_mpdt_from_generic_email(self) -> None:
+        """通用邮件凭据可以复用给 mpdt 专用键。"""
+        os.environ["MP_DOTENV"] = str(Path(self._tmp.name) / "absent.env")
+        os.environ.pop("MPDT_SMTP_HOST", None)
+        saved = os.environ.get("EMAIL_SMTP_HOST")
+        os.environ["EMAIL_SMTP_HOST"] = "smtp.generic.example"
+        try:
+            self.assertEqual(push._load_env().get("MPDT_SMTP_HOST"), "smtp.generic.example")
+        finally:
+            if saved is None:
+                os.environ.pop("EMAIL_SMTP_HOST", None)
+            else:
+                os.environ["EMAIL_SMTP_HOST"] = saved
+
+
+class SelfAddressTests(unittest.TestCase):
+    """`_self_addresses()` 的确定性测试（R68）。
+
+    这个函数决定「哪些地址永远允许收到本账号数据」（白名单之外的兜底），
+    是 R239 红线的一部分，必须有测试，而且**不能用开发机的 ~/.hermes/.env**：
+    否则同一份代码在开发机上是绿的、在 CI 上是红的，红的原因还是"机器不同"。
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved = {
+            k: os.environ.get(k)
+            for k in ("MP_DOTENV", "EMAIL_ADDRESS", "MPDT_SMTP_USER", "MPDT_MAIL_FROM")
+        }
+        for k in ("EMAIL_ADDRESS", "MPDT_SMTP_USER", "MPDT_MAIL_FROM"):
+            os.environ.pop(k, None)
+
+    def tearDown(self) -> None:
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        self._tmp.cleanup()
+
+    def test_reads_owner_addresses_from_dotenv(self) -> None:
+        p = Path(self._tmp.name) / ".env"
+        p.write_text(
+            "# 注释\n"
+            'EMAIL_ADDRESS="owner@example.com"\n'
+            "MPDT_MAIL_FROM=owner2@example.com\n"
+            "SOME_OTHER_KEY=not-an-address@example.com\n",
+            encoding="utf-8",
+        )
+        os.environ["MP_DOTENV"] = str(p)
+        addrs = push._self_addresses({})
+        self.assertIn("owner@example.com", addrs)  # 引号要剥掉
+        self.assertIn("owner2@example.com", addrs)
+        # 无关键不能被当成本人地址
+        self.assertNotIn("not-an-address@example.com", addrs)
+
+    def test_missing_dotenv_is_not_an_error(self) -> None:
+        os.environ["MP_DOTENV"] = str(Path(self._tmp.name) / "absent.env")
+        self.assertEqual(push._self_addresses({}), set())
+
+    def test_cfg_user_counts_as_self(self) -> None:
+        os.environ["MP_DOTENV"] = str(Path(self._tmp.name) / "absent.env")
+        addrs = push._self_addresses({"user": "Sender@Example.COM"})
+        self.assertIn("sender@example.com", addrs)  # 大小写归一
+
+
 if __name__ == "__main__":
     unittest.main()

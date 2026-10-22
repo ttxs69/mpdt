@@ -25,16 +25,16 @@ INIT_RE = re.compile(r"^__version__\s*=\s*['\"]([^'\"]+)['\"]", re.M)
 PYPROJECT_RE = re.compile(r'^version\s*=\s*["\']([^"\']+)["\']', re.M)
 
 
-def parse_semver(v):
+def parse_semver(v: str) -> tuple[int, int, int] | None:
     """'v1.2.3'/'1.2.3' -> (1,2,3); returns None for non-semver strings."""
     v = v.strip().lstrip("vV")
     m = re.match(r"^(\d+)\.(\d+)\.(\d+)", v)
     if not m:
         return None
-    return tuple(int(x) for x in m.groups())
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
 
 
-def read_versions(root):
+def read_versions(root: str) -> tuple[str, str]:
     pp = os.path.join(root, "pyproject.toml")
     init = os.path.join(root, "mpdt", "__init__.py")
     for p in (pp, init):
@@ -53,7 +53,7 @@ def read_versions(root):
     return m1.group(1).strip(), m2.group(1).strip()
 
 
-def highest_tag(root):
+def highest_tag(root: str) -> tuple[str, tuple[int, int, int]]:
     out = subprocess.run(
         ["git", "-C", root, "tag", "--list"],
         capture_output=True,
@@ -68,14 +68,22 @@ def highest_tag(root):
         sem = parse_semver(line)
         if sem and (best_sem is None or sem > best_sem):
             best, best_sem = line, sem
-    if best is None:
+    if best is None or best_sem is None:
         sys.stderr.write("version_gate: no semver tags found in repo\n")
         sys.exit(2)
     return best, best_sem
 
 
-def check(root, allow_eq=False):
-    """Returns (exit_code, message). allow_eq: version == highest tag is OK (PR mode)."""
+def check(root: str, allow_eq: bool = False, expect_tag: str | None = None) -> tuple[int, str]:
+    """Returns (exit_code, message).
+
+    allow_eq: version == highest tag is OK (PR / tag-push mode).
+    expect_tag: when set (tag-push publishing), the version MUST equal this tag.
+        Rationale: the package is built from the source tree, but the tag is a
+        separate object. Pushing `v0.2.7` onto a tree whose version says 0.2.8
+        would publish 0.2.8 under a v0.2.7 tag — the artifact and its label
+        disagree, and nothing else in the pipeline would notice.
+    """
     v_pp, v_init = read_versions(root)
     tag_name, tag_sem = highest_tag(root)
     sem_pp, sem_init = parse_semver(v_pp), parse_semver(v_init)
@@ -90,6 +98,21 @@ def check(root, allow_eq=False):
         )
         print(msg, file=sys.stderr)
         return 1, msg
+    if expect_tag:
+        exp_sem = parse_semver(expect_tag)
+        if exp_sem is None:
+            msg = f"version_gate: GATE_EXPECT_TAG={expect_tag!r} is not semver"
+            print(msg, file=sys.stderr)
+            return 2, msg
+        if exp_sem != sem_pp:
+            msg = (
+                f"version_gate: TAG/VERSION MISMATCH — pushed tag {expect_tag} but the version "
+                f"files say {v_pp}.\n"
+                "Fix: bump BOTH files and tag that commit; the tag must name the version being "
+                "released, otherwise the artifact and its label disagree."
+            )
+            print(msg, file=sys.stderr)
+            return 1, msg
     if sem_pp < tag_sem or (sem_pp == tag_sem and not allow_eq):
         mode = "EQUAL" if sem_pp == tag_sem else "BELOW"
         msg = (
@@ -119,5 +142,8 @@ def check(root, allow_eq=False):
 if __name__ == "__main__":
     root = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
     allow_eq = os.environ.get("GATE_ALLOW_EQ") == "1"
-    code, _ = check(root, allow_eq=allow_eq)
+    # 推 tag 发版时由 CI 传入 github.ref_name（如 v0.2.7）：
+    # 要求 tag 名与被发布的版本号一致，否则包和标签会对不上。
+    expect_tag = os.environ.get("GATE_EXPECT_TAG") or None
+    code, _ = check(root, allow_eq=allow_eq, expect_tag=expect_tag)
     sys.exit(code)

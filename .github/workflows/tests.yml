@@ -81,10 +81,16 @@ jobs:
 
   version-gate:
     # R113 e1 rule: dual-file version (pyproject + __init__) must stay in sync
-    # and never regress below an existing tag. Triggered on PRs only — on a
-    # PR, "version == an existing tag" is allowed (docs/CI-only changes must
-    # not be forced to bump); only mismatch or regression fails.
-    if: github.event_name == 'pull_request'
+    # and never regress below an existing tag.
+    #
+    # 触发面（2026-10-22 R68 修）：原来只在 PR 上跑 ⇒ **推 tag 发版时整条门被跳过**
+    # （实测 publish 那次的 job 列表里 version-gate=skipped）。发版恰恰是最需要它的场合：
+    # 包是从源码树构建的，tag 是另一个对象，两者对不上时没有任何环节会发现。
+    #
+    # 现在 PR 与 tag 推送都跑：
+    #   - PR：允许 version == 最高 tag（docs/CI-only 改动不该被迫 bump）
+    #   - tag：额外要求 **tag 名 == 版本号**（GATE_EXPECT_TAG）
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,6 +107,8 @@ jobs:
 
       - name: Version gate — dual-file sync + no regression below tag
         env:
-          GATE_ALLOW_EQ: "1"  # PRs may keep version == existing tag; only regression/mismatch fails
+          GATE_ALLOW_EQ: "1"  # PR / tag-push：version == 最高 tag 是正常的（tag 推送本身就是那个 tag）
+          # 非 tag 事件时为空串 ⇒ 不启用 tag/版本一致性检查
+          GATE_EXPECT_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
         run: python tools/version_gate.py
 

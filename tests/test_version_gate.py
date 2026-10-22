@@ -122,5 +122,53 @@ class VersionGateTests(unittest.TestCase):
         self.assertEqual(self.gate.parse_semver("1.2.3"), (1, 2, 3))
 
 
+class TagVersionMatchTests(unittest.TestCase):
+    """推 tag 发版时 tag 名必须等于版本号（R68）。
+
+    背景：`publish.yml` 由 `push tag v*` 触发，包从**源码树**构建，tag 是另一个对象。
+    推 `v0.2.7` 到一棵版本写着 0.2.8 的树上，会发布 0.2.8 而标签写着 v0.2.7 ——
+    产物和标签对不上，而链路上没有任何其它环节会发现（PyPI 只认包里的版本号）。
+    """
+
+    def setUp(self) -> Any:
+        self.gate = load_gate()
+
+    def test_tag_matches_version_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write_repo(tmp, "0.2.7", "0.2.7", ["v0.2.6", "v0.2.7"])
+            rc, msg = self.gate.check(str(tmp), allow_eq=True, expect_tag="v0.2.7")
+            self.assertEqual(rc, 0, msg)
+
+    def test_tag_newer_than_version_fails(self) -> None:
+        """tag 说 0.2.8，版本文件还停在 0.2.7 ⇒ 会发错版本，必须拦。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            write_repo(tmp, "0.2.7", "0.2.7", ["v0.2.6", "v0.2.8"])
+            rc, msg = self.gate.check(str(tmp), allow_eq=True, expect_tag="v0.2.8")
+            self.assertEqual(rc, 1)
+            self.assertIn("TAG/VERSION MISMATCH", msg)
+
+    def test_version_newer_than_tag_fails(self) -> None:
+        """版本已经 0.2.9，却推 v0.2.8 ⇒ 同样不一致。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            write_repo(tmp, "0.2.9", "0.2.9", ["v0.2.8"])
+            rc, msg = self.gate.check(str(tmp), allow_eq=True, expect_tag="v0.2.8")
+            self.assertEqual(rc, 1)
+            self.assertIn("TAG/VERSION MISMATCH", msg)
+
+    def test_non_semver_tag_is_tool_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write_repo(tmp, "0.2.7", "0.2.7", ["v0.2.7"])
+            rc, msg = self.gate.check(str(tmp), allow_eq=True, expect_tag="release-latest")
+            self.assertEqual(rc, 2)
+            self.assertIn("not semver", msg)
+
+    def test_no_expect_tag_skips_the_check(self) -> None:
+        """PR 场景不传 expect_tag ⇒ 不做 tag/版本一致性检查（否则 PR 永远红）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            write_repo(tmp, "0.2.7", "0.2.7", ["v0.2.6"])
+            rc, msg = self.gate.check(str(tmp), allow_eq=True, expect_tag=None)
+            self.assertEqual(rc, 0, msg)
+
+
 if __name__ == "__main__":
     unittest.main()

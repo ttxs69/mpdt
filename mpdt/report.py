@@ -14,6 +14,7 @@ from itertools import combinations
 
 from . import metrics as metrics_mod
 from . import advice as advice_mod
+from . import next_step as next_step_mod
 from .metrics import calibration_note, auto_pairs
 
 
@@ -507,6 +508,17 @@ def generate(con, iso_week: str, out_dir: str) -> dict:
         advice_info = {'verdict': _adv.get('verdict'), 'headline': _adv.get('headline'),
                        'n_actions': len(_adv.get('actions') or []),
                        'evidence': _adv.get('evidence', {})}
+        # R67：把「工具到哪一步为止 / 剩下归谁」写进周报本身。
+        # 实测：mpdt 14 天 133 个唯一克隆者，但 ¥99/¥499 三档 0 成交 ——
+        # 终端里从没出现过「人工版」，用完工具的人根本不知道有人能接着做。
+        # 只在有可执行结论时出现（样本不足时出现就是骗人）。
+        try:
+            _ns = next_step_mod.render_next_step(_adv)
+            if _ns:
+                lines.append(_ns)
+                advice_info['next_step'] = True
+        except Exception:
+            advice_info['next_step'] = False
     except Exception as _e:
         advice_info = {'verdict': 'ERROR', 'error': '%s: %s' % (type(_e).__name__, _e)}
         lines.append('> ⚠ 判断层未能生成：%s\n' % advice_info['error'])

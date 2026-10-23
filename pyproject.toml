@@ -10,6 +10,8 @@ readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "ttxs69" }]
 requires-python = ">=3.10"
+# 诚实标注：这是实验性内部工具，不是产品；无付费版/无商业支持
+keywords = ["wechat", "weixin", "mp", "official-account", "analytics", "cli", "experimental", "not-a-product"]
 dependencies = [
     "requests",
     "websocket-client",

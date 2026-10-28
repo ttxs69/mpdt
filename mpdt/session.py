@@ -9,11 +9,25 @@ import json
 import re
 import time
 import urllib.request
-from typing import Any
+from typing import Any, Protocol
 
 from .errors import AuthError
 
 ANALYSIS_URL = "https://mp.weixin.qq.com/misc/appmsganalysis?action=all&lang=zh_CN"
+
+
+class SessionLike(Protocol):
+    """fetchers 真正需要的最小契约：拿 token、发一段 JS、带上 fingerprint。
+
+    写成 Protocol 而不是直接依赖 Session：抓取层不该知道 CDP/WebSocket 的存在，
+    测试也不必构造一个真的浏览器连接。
+    """
+
+    fingerprint: str
+
+    def ensure_token(self) -> str: ...
+
+    def fetch_text(self, js: str) -> str: ...
 
 
 class Session:

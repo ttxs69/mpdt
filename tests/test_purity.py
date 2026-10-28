@@ -27,6 +27,7 @@ PURE_MODULES = (
     "mpdt/advice.py",  # 诊断：行 → 判定
     "mpdt/next_step.py",  # 判定 → 下一步文案
     "mpdt/metrics.py",  # 口径登记表与查询视图
+    "mpdt/parsing.py",  # 原始文本 → 结构化数据（fetchers 的纯半边）
 )
 
 # 壳层：允许查库/发信/写文件/打印，但每个函数都必须短。
@@ -35,6 +36,9 @@ SHELL_MODULES = (
     "mpdt/push.py",
     "mpdt/report.py",
     "mpdt/store.py",
+    "mpdt/fetchers/publish_list.py",
+    "mpdt/fetchers/datacube.py",
+    "mpdt/fetchers/article_detail.py",
 )
 SHELL_LIMIT = 30
 

@@ -20,6 +20,30 @@ pip install -e . && pip install -r requirements-dev.txt
 配置全部在 `pyproject.toml` 的 `[tool.ruff*]` / `[tool.mypy]` / `[tool.pytest.ini_options]` /
 `[tool.coverage.*]`，没有 `setup.cfg`、`tox.ini`、`mypy.ini`、`pytest.ini`、`.flake8` 的第二份配置。
 
+## 架构：功能核心 / 命令式外壳
+
+代码分三层，`tests/test_purity.py` 用 AST 钉住边界 —— 写在文档里的架构会退化，
+写成断言的不会。
+
+| 层 | 模块 | 只做 | 例 |
+|---|---|---|---|
+| 整形（纯） | `shape.py` | 数据 → 数据 | 哪些算本周、去重、派生列、导出行 |
+| 渲染（纯） | `render.py` | 数据 → 文本 | Markdown / HTML / 邮件正文 / 人读行 |
+| 判定（纯） | `advice.py` `next_step.py` `metrics.py` | 行 → 判定 / 口径表 | 诊断、下一步文案、series 登记 |
+| 外壳 | `cli.py` `report.py` `push.py` `store.py` | 查库、发信、写盘、打印、退出码 | `collect()` / `_write()` / `_deliver()` |
+
+两条被强制执行的规则：
+
+1. **纯模块不许碰世界**：不许 import `os`/`sqlite3`/`urllib`/`smtplib`…，不许调用
+   `print`/`open`/`.execute`/`.fetchall`/`.urlopen`，也不许反向 import 壳层。
+2. **壳函数不超过 30 条语句**（含嵌套）。**每个**函数自动受限，不维护白名单 ——
+   白名单只保护它认识的东西，新增一个 200 行的 `cmd_xxx` 会永远不被看见。
+
+守卫生效过两次真实复发：`cmd_detail` 第一次拆完仍有 47 条语句，`send_report` 28 条。
+
+为什么值得：口径问题（"最近 30 天怎么筛"、"取哪条快照"、"完读率分母是谁"）现在
+可以喂数据直接验证，不必先起一个数据库和一个假 Chrome。
+
 ## 为什么 lint / 类型用「棘轮」而不是「必须先清零」
 
 首次接入（2026-10-22）时：

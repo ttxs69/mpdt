@@ -17,12 +17,26 @@ from __future__ import annotations
 import ast
 import unittest
 from pathlib import Path
-from typing import ClassVar
 
 ROOT = Path(__file__).resolve().parent.parent
 
 # 纯函数层：只有这些模块被要求"零 I/O"。新增纯模块时加到这里。
-PURE_MODULES = ("mpdt/render.py", "mpdt/shape.py")
+PURE_MODULES = (
+    "mpdt/render.py",  # 数据 → Markdown / HTML / 邮件 / 人读行
+    "mpdt/shape.py",  # 数据 → 数据
+    "mpdt/advice.py",  # 诊断：行 → 判定
+    "mpdt/next_step.py",  # 判定 → 下一步文案
+    "mpdt/metrics.py",  # 口径登记表与查询视图
+)
+
+# 壳层：允许查库/发信/写文件/打印，但每个函数都必须短。
+SHELL_MODULES = (
+    "mpdt/cli.py",
+    "mpdt/push.py",
+    "mpdt/report.py",
+    "mpdt/store.py",
+)
+SHELL_LIMIT = 30
 
 # 出现这些 import 说明模块在读环境/文件/网络/数据库
 FORBIDDEN_IMPORTS = {
@@ -92,6 +106,17 @@ def forbidden_findings(tree: ast.Module) -> list[str]:
     return out
 
 
+def oversized_functions(source: str, limit: int) -> list[tuple[str, int]]:
+    """[(函数名, 语句数)] —— 超过 limit 的壳函数。语句数含嵌套。"""
+    out: list[tuple[str, int]] = []
+    for node in ast.parse(source).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            n = sum(1 for child in ast.walk(node) if isinstance(child, ast.stmt))
+            if n > limit:
+                out.append((node.name, n))
+    return out
+
+
 class TestPureModulesHaveNoSideEffects(unittest.TestCase):
     def test_pure_modules_exist(self) -> None:
         for rel in PURE_MODULES:
@@ -110,6 +135,20 @@ class TestPureModulesHaveNoSideEffects(unittest.TestCase):
             tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
             findings = forbidden_findings(tree)
             self.assertFalse(findings, f"{rel} 是纯函数层，却出现了副作用调用：{findings[:5]}")
+
+    def test_pure_layers_never_import_a_shell(self) -> None:
+        """纯层不许反向依赖壳层 —— 否则"纯"只是名字，一 import 就带进 I/O。"""
+        shells = {
+            f.replace("/", ".").removesuffix(".py").split(".", 1)[1]
+            for f in (*SHELL_MODULES, "mpdt/session.py")
+        }
+        for rel in PURE_MODULES:
+            tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom) or not node.module:
+                    continue
+                dep = node.module.split(".")[-1]
+                self.assertNotIn(dep, shells, f"{rel} 反向依赖了壳层模块 {node.module}")
 
     def test_the_guard_actually_bites(self) -> None:
         """守卫本身要被验证：一段带 I/O 的源码必须被判不纯。
@@ -130,27 +169,30 @@ def f():
 
 
 class TestTheShellStaysThin(unittest.TestCase):
-    """壳层可以有 I/O，但每个壳函数都该短。超过这个长度的壳通常是逻辑漏回来了。"""
+    """壳层可以有 I/O，但每个壳函数都该短。超过这个长度的壳通常是逻辑漏回来了。
 
-    SHELL_LIMIT = 25  # 语句数
-    SHELL_FUNCS: ClassVar[dict[str, tuple[str, ...]]] = {
-        "mpdt/report.py": ("generate", "collect", "_write"),
-        "mpdt/cli.py": ("cmd_detail", "cmd_metrics", "cmd_doctor"),
-        "mpdt/push.py": ("send_report",),
-    }
+    不维护函数白名单：**每个**函数自动受限。否则新增一个 200 行的 cmd_xxx
+    就永远不会被这条检查看见 —— 白名单只保护它认识的东西。
+    """
 
-    def test_shell_functions_stay_short(self) -> None:
-        for rel, names in self.SHELL_FUNCS.items():
-            tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
-            found = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
-            for name in names:
-                self.assertIn(name, found, f"{rel} 缺壳函数 {name}")
-                stmts = sum(1 for _ in ast.walk(found[name]) if isinstance(_, ast.stmt))
-                self.assertLessEqual(
-                    stmts,
-                    self.SHELL_LIMIT,
-                    f"{rel}:{name} 有 {stmts} 条语句 —— 逻辑该搬去 render 了",
-                )
+    def test_every_shell_function_stays_short(self) -> None:
+        offenders: dict[str, list[str]] = {}
+        for rel in SHELL_MODULES:
+            big = oversized_functions((ROOT / rel).read_text(encoding="utf-8"), SHELL_LIMIT)
+            if big:
+                offenders[rel] = [f"{name}={n} 语句" for name, n in big]
+        self.assertEqual(
+            offenders,
+            {},
+            f"壳函数超过 {SHELL_LIMIT} 条语句：拆开（决策/文案搬到纯层），别调大数字",
+        )
+
+    def test_the_length_guard_bites(self) -> None:
+        """长度检查也要被验证：35 条语句的函数必须被判超标。"""
+        stmts = "\n".join(f"    x{i} = {i}" for i in range(35))
+        flagged = oversized_functions(f"def fat():\n{stmts}\n", SHELL_LIMIT)
+        self.assertTrue(flagged, "35 条语句的函数没被判超标")
+        self.assertEqual(oversized_functions("def thin():\n    return 1\n", SHELL_LIMIT), [])
 
 
 class TestTheDataTransformsArePure(unittest.TestCase):

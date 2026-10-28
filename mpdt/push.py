@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import imaplib
 import json
 import os
 import smtplib
@@ -20,7 +22,7 @@ import ssl
 from pathlib import Path
 from typing import Any
 
-from . import render
+from . import render, shape
 
 # 必填项（缺任何一个都不能发信）
 ENV_KEYS = {
@@ -135,6 +137,26 @@ def _html_inline(html_path: Path) -> str:
     return raw
 
 
+def _imap_recent_headers(
+    host: str, port: int, user: str, password: str, timeout_s: int = 60, limit: int = 25
+) -> list:
+    """取收件箱最近 N 封的头部字节（I/O）。失败抛异常，由调用方翻译成人话。"""
+    imap = imaplib.IMAP4_SSL(host, port, timeout=timeout_s)
+    try:
+        imap.login(user, password)
+        imap.select("INBOX")
+        _typ, data = imap.search(None, "ALL")
+        ids = data[0].split()
+        raws = []
+        for i in reversed(ids[-limit:]):
+            _t, d = imap.fetch(i, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO)])")
+            raws.append(d[0][1])
+        return raws
+    finally:
+        with contextlib.suppress(Exception):
+            imap.logout()
+
+
 def verify_delivery(
     recipient: str,
     subject_contains: str = "",
@@ -154,10 +176,6 @@ def verify_delivery(
     返回 {'delivered': bool, 'subject': str|None, 'checked': n}
     收件箱里没有 ⇒ delivered=False（可能仍在投递队列中，调用方决定是否重试）。
     """
-    import email as _email
-    import imaplib
-    from email.header import decode_header, make_header
-
     if not imap_host or not imap_user or not imap_password:
         return {
             "delivered": False,
@@ -166,30 +184,7 @@ def verify_delivery(
             "error": "缺少 IMAP 凭据，无法验证投递",
         }
     try:
-        imap = imaplib.IMAP4_SSL(imap_host, imap_port, timeout=timeout_s)
-        imap.login(imap_user, imap_password)
-        imap.select("INBOX")
-        _typ, data = imap.search(None, "ALL")
-        ids = data[0].split()
-        checked = 0
-        for i in reversed(ids[-25:]):
-            _typ, d = imap.fetch(i, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO)])")
-            raw = d[0][1]
-            if isinstance(raw, str):
-                raw = raw.encode()
-            hdr = _email.message_from_bytes(raw)
-            subj = str(make_header(decode_header(hdr["Subject"] or "")))
-            checked += 1
-            if subject_contains and subject_contains in subj:
-                imap.logout()
-                return {"delivered": True, "subject": subj, "checked": checked}
-        imap.logout()
-        return {
-            "delivered": False,
-            "subject": None,
-            "checked": checked,
-            "error": f"收件箱最近 {checked} 封中未找到主题含 {subject_contains!r} 的邮件",
-        }
+        raws = _imap_recent_headers(imap_host, imap_port, imap_user, imap_password, timeout_s)
     except Exception as e:
         return {
             "delivered": False,
@@ -197,6 +192,16 @@ def verify_delivery(
             "checked": 0,
             "error": f"IMAP 校验失败：{type(e).__name__}: {e}",
         }
+    subjects = [shape.mail_subject(r) for r in raws]
+    hit, checked = shape.subject_hit(subjects, subject_contains)
+    if hit:
+        return {"delivered": True, "subject": subjects[checked - 1], "checked": checked}
+    return {
+        "delivered": False,
+        "subject": None,
+        "checked": checked,
+        "error": f"收件箱最近 {checked} 封中未找到主题含 {subject_contains!r} 的邮件",
+    }
 
 
 def _allowlist_path() -> Path:

@@ -14,7 +14,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mpdt import advice, analysis, store
+from mpdt import advice, analysis, shape, store
 
 
 def _mk_rows() -> Any:
@@ -292,7 +292,7 @@ class TestLoadRows(unittest.TestCase):
             },
         )
         con.commit()
-        rows = advice.load_rows(con)
+        rows = shape.to_advice_rows(store.load_advice_source(con))
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["read"], 50)
         self.assertEqual(rows[0]["rec"], 30)

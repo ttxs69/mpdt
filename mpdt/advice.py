@@ -22,7 +22,6 @@
 
 from __future__ import annotations
 
-import json
 import statistics
 
 from . import analysis
@@ -33,51 +32,6 @@ BLACKOUT_MIN_DAYS = 2
 
 # 推荐阅读人数算「吃到推荐」的门槛
 HIT_REC = analysis.HIT_REC  # 唯一常量源：analysis.py（R241）
-
-
-def _channel_map(metrics: dict) -> dict:
-    return {c.get("scene_label"): c for c in (metrics.get("channel_breakdown") or [])}
-
-
-def load_rows(con, only_dates=None) -> list:
-    """从 mpdt 快照构造诊断行。
-
-    取每个 (appmsgid, itemidx) 的**最新** stat_date 快照 ——
-    早期快照在新文章还没数据时是 read_uv=0，取早的会把好文章误判成"没量"。
-    （R238 实测：10-19/10-20 的 5 篇取早快照全是 0，取最新是 21/56/92/103。）
-    """
-    latest = {}
-    for sd, ti, m, am, ix in con.execute(
-        "SELECT stat_date, title, metrics, appmsgid, itemidx FROM snapshots "
-        "WHERE source='article_detail' ORDER BY stat_date"
-    ):
-        latest[(str(am), int(ix))] = (sd, ti, m)
-    rows = []
-    for (_am, _ix), (_sd, ti, m) in latest.items():
-        d = json.loads(m)
-        uv = d.get("read_uv")
-        if not isinstance(uv, (int, float)):
-            continue
-        ch = _channel_map(d)
-        rec = (ch.get("推荐") or {}).get("read_user")
-        msg = (ch.get("公众号消息") or {}).get("read_user")
-        fin = d.get("finished_read_pv_ratio")
-        pd = d.get("publish_date")
-        if only_dates and pd not in only_dates:
-            continue
-        rows.append(
-            {
-                "date": pd,
-                "title": ti or "",
-                "read": uv,
-                "rec": rec if isinstance(rec, (int, float)) else 0,
-                "msg": msg if isinstance(msg, (int, float)) else 0,
-                "fin": fin if isinstance(fin, (int, float)) else None,
-                "form": None,
-            }
-        )
-    rows.sort(key=lambda r: (r["date"] or "", -r["rec"]))
-    return rows
 
 
 def detect_blackout(rows: list) -> dict:

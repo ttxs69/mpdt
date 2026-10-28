@@ -13,7 +13,10 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import email
 import json
+from email.header import decode_header, make_header
 from typing import Any
 
 
@@ -137,3 +140,112 @@ def export_payload(
     if metrics_meta is not None:
         payload["metrics_meta"] = metrics_meta
     return payload
+
+
+def to_advice_rows(raw_rows: list, only_dates: set | None = None) -> list:
+    """快照原始行 → 诊断行（纯）。
+
+    取每个 (appmsgid, itemidx) 的**最新** stat_date 快照 —— 早期快照在新文章还没
+    数据时是 read_uv=0，取早的会把好文章误判成"没量"。（R238 实测：10-19/10-20 的
+    5 篇取早快照全是 0，取最新是 21/56/92/103。）
+
+    `raw_rows` 是壳按 stat_date 升序取出的 (sd, title, metrics_json, appmsgid, itemidx)。
+    """
+    latest: dict = {}
+    for sd, ti, m, am, ix in raw_rows:
+        latest[(str(am), int(ix))] = (sd, ti, m)
+    rows = []
+    for (_am, _ix), (_sd, ti, m) in latest.items():
+        d = json.loads(m)
+        uv = d.get("read_uv")
+        if not isinstance(uv, (int, float)):
+            continue
+        ch = {}
+        for item in d.get("channel_breakdown") or []:
+            ch[item.get("scene_label")] = item
+        rec = (ch.get("推荐") or {}).get("read_user")
+        msg = (ch.get("公众号消息") or {}).get("read_user")
+        fin = d.get("finished_read_pv_ratio")
+        pd = d.get("publish_date")
+        if only_dates and pd not in only_dates:
+            continue
+        rows.append(
+            {
+                "date": pd,
+                "title": ti or "",
+                "read": uv,
+                "rec": rec if isinstance(rec, (int, float)) else 0,
+                "msg": msg if isinstance(msg, (int, float)) else 0,
+                "fin": fin if isinstance(fin, (int, float)) else None,
+                "form": None,
+            }
+        )
+    rows.sort(key=lambda r: (r["date"] or "", -r["rec"]))
+    return rows
+
+
+def fetch_window(today, backfill: int | None, from_date: str | None, to_date: str | None):
+    """本次拉取的 (begin, end) 日期区间（纯）。
+
+    默认 T+1：昨天是最新可得日。--from/--to 显式覆盖，--backfill N 回补 N 天。
+    """
+    end = today - dt.timedelta(days=1)
+    begin = today - dt.timedelta(days=backfill) if backfill else end
+    if from_date:
+        begin = dt.date.fromisoformat(from_date)
+    if to_date:
+        end = dt.date.fromisoformat(to_date)
+    return begin, end
+
+
+PUBLISH_METRIC_KEYS = ("read_num", "share_num", "like_num", "old_like_num", "comment_num")
+DATACUBE_METRIC_KEYS = (
+    "refdate",
+    "finish_read_rate",
+    "read_rate",
+    "total_pv",
+    "total_read_finish",
+    "total_share",
+    "send_succ",
+)
+
+
+def send_hour_of(create_time) -> str | None:
+    """群发时刻（北京时间 HH:MM）；上游缺 create_time 时返回 None，不虚构。"""
+    if not isinstance(create_time, int) or create_time <= 0:
+        return None
+    ts = dt.datetime.fromtimestamp(create_time, dt.timezone(dt.timedelta(hours=8)))
+    return ts.strftime("%H:%M")
+
+
+def publish_list_metrics(article: dict) -> dict:
+    """发表列表一行的指标（纯）。R101：create_time/publish_date/send_hour 随行入库
+    （C20 publish_window 消费链的 L1 缺口——解析层早有、入库曾丢弃）。"""
+    ct = article.get("create_time")
+    return {
+        **{k: article.get(k) for k in PUBLISH_METRIC_KEYS},
+        "create_time": ct if send_hour_of(ct) else None,
+        "publish_date": article.get("publish_date") or None,
+        "send_hour": send_hour_of(ct),
+    }
+
+
+def datacube_metrics(row: dict) -> dict:
+    """datacube 一行的指标（纯）：只取本工具消费的键，上游多给的丢弃。"""
+    return {k: row.get(k) for k in DATACUBE_METRIC_KEYS}
+
+
+def mail_subject(raw) -> str:
+    """IMAP 头字节 → 主题字符串（纯）。RFC2047 编码头在这里解码。"""
+    if isinstance(raw, str):
+        raw = raw.encode()
+    hdr = email.message_from_bytes(raw)
+    return str(make_header(decode_header(hdr["Subject"] or "")))
+
+
+def subject_hit(subjects: list, needle: str) -> tuple:
+    """按给定顺序找主题含 needle 的第一封 → (是否命中, 检查了几封)。"""
+    for i, subj in enumerate(subjects, 1):
+        if needle and needle in subj:
+            return True, i
+    return False, len(subjects)

@@ -7,7 +7,8 @@ name = "mpdt"
 version = "0.2.7"
 description = "公众号运营数据本地 CLI：把后台三源数据抓回本机 SQLite，一键生成周报"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "ttxs69" }]
 requires-python = ">=3.10"
 # 诚实标注：这是实验性内部工具，不是产品；无付费版/无商业支持
@@ -19,7 +20,6 @@ dependencies = [
 classifiers = [
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",

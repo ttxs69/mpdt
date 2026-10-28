@@ -101,6 +101,22 @@ def _diff_marker(a, b):
     return changes
 
 
+def _diff_reports(prev: dict, recent: dict, overall: dict) -> list:
+    """上一次水位 vs 本次的差异行（recent 三个窗口 + overall 两类镜像）。"""
+    diffs = []
+    prev_recent = prev.get("recent") or {}
+    prev_overall = prev.get("overall") or {}
+    for k in ["last_day", "last_week", "last_month"]:
+        if prev_recent.get(k) != recent.get(k):
+            diffs.append(f"recent.{k}: {prev_recent.get(k)} → {recent.get(k)}")
+    for cat in ["with_mirrors", "without_mirrors"]:
+        for d, dv in (overall.get(cat) or {}).items():
+            pdv = prev_overall.get(cat, {}).get(d)
+            if pdv != dv:
+                diffs.append(f"overall.{cat}.{d}: {pdv} → {dv}")
+    return diffs
+
+
 def cmd_check(args):
     pkg = args.package
     wp = watermark_path(args.state_dir, pkg)
@@ -130,23 +146,10 @@ def cmd_check(args):
             file=sys.stderr,
         )
         return 0
-    # Compare
-    prev_recent = prev.get("recent") or {}
-    prev_overall = prev.get("overall") or {}
-    diffs = []
-    for k in ["last_day", "last_week", "last_month"]:
-        if prev_recent.get(k) != recent.get(k):
-            diffs.append(f"recent.{k}: {prev_recent.get(k)} → {recent.get(k)}")
-    for cat in ["with_mirrors", "without_mirrors"]:
-        for d, dv in (overall.get(cat) or {}).items():
-            pdv = prev_overall.get(cat, {}).get(d)
-            if pdv != dv:
-                diffs.append(f"overall.{cat}.{d}: {pdv} → {dv}")
+    diffs = _diff_reports(prev, recent, overall)
     if diffs:
         for d in diffs:
             print(d)
-        _write_watermark(wp, new_wm)
-        return 0
     # No change — silent
     _write_watermark(wp, new_wm)
     return 0

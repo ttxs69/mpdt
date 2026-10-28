@@ -14,6 +14,7 @@
 """
 
 from itertools import combinations
+from typing import Any
 
 # 源缩写（series_key 后缀） & 窗口字面量
 SRC_PL = "publish_list"
@@ -433,7 +434,7 @@ SOURCES = (SRC_PL, SRC_DC, SRC_AD)
 # ── 派生 API（从 CONCEPTS 推导，调用方只读这一套） ──────────
 
 
-def concepts() -> dict:
+def concepts() -> dict[str, Any]:
     """返回整个概念树（不可变视图，调用方勿改）。"""
     return CONCEPTS
 
@@ -450,32 +451,45 @@ def all_series():
             yield cname, skey, s
 
 
+def _meta_series():
+    """META_FIELDS 摊平成 (mname, skey, series)。"""
+    for mname, m in META_FIELDS.items():
+        for skey, s in m["series"].items():
+            yield mname, skey, s
+
+
+def _deprecated_series():
+    """DEPRECATED 摊平成 (dname, skey, series)。"""
+    for dname, d in DEPRECATED.items():
+        for skey, s in d["series"].items():
+            yield dname, skey, s
+
+
+def _match_series(entries, field: str | None, source: str | None):
+    """在 (name, skey, series) 序列里找第一个匹配；没有返回 None。"""
+    for name, skey, s in entries:
+        if field is not None and s["field"] != field:
+            continue
+        if source is not None and s["source"] != source:
+            continue
+        return name, skey, s
+    return None
+
+
 def find_series(field: str | None = None, source: str | None = None):
     """按 field 查 series（field 在 (source, field) 上唯一）；可同时按 source 限定。
 
     查询顺序：CONCEPTS → META_FIELDS → DEPRECATED。
     返回 (concept_or_meta_key, series_key, series_dict)。
+
+    注意 series_key 必须来自**命中的那条**：早先 META/DEPRECATED 两段用 `_skey`
+    接收循环变量却 `return skey`，返回的是上一段循环残留的键 —— 实测
+    find_series("refdate","dc7") 曾返回 ('refdate','ad30',<dc7 的 series>)。
     """
-    for cname, skey, s in all_series():
-        if field is not None and s["field"] != field:
-            continue
-        if source is not None and s["source"] != source:
-            continue
-        return cname, skey, s
-    for mname, m in META_FIELDS.items():
-        for _skey, s in m["series"].items():
-            if field is not None and s["field"] != field:
-                continue
-            if source is not None and s["source"] != source:
-                continue
-            return mname, skey, s
-    for dname, d in DEPRECATED.items():
-        for _skey, s in d["series"].items():
-            if field is not None and s["field"] != field:
-                continue
-            if source is not None and s["source"] != source:
-                continue
-            return dname, skey, s
+    for entries in (all_series(), _meta_series(), _deprecated_series()):
+        hit = _match_series(entries, field, source)
+        if hit is not None:
+            return hit
     return None
 
 
@@ -509,7 +523,7 @@ def auto_pairs():
 # ── 人读 / 文档派生 ─────────────────────────────────────────
 
 
-def to_concepts_view(query: str | None = None) -> list:
+def to_concepts_view(query: str | None = None) -> list[Any]:
     """按概念分组的人读视图（`mpdt metrics` data 体；`mpdt metrics <query>` 过滤）。
 
     每个概念节点：{ concept, display, unit, series: [{key, source, field, window,
@@ -586,73 +600,66 @@ def calibration_note() -> str:
     return "\n".join(lines)
 
 
-def readme_section() -> str:
-    """README『指标口径』节（按概念分组；改 CONCEPTS 后重新生成本节保持同步）。"""
-    out = ["## 指标口径（CONCEPTS · 按概念分组）", ""]
-    for cname, c in CONCEPTS.items():
-        out.append("#### {}（`{}`，单位：{}）".format(c["display"], cname, c["unit"]))
-        if c.get("note"):
-            out.append("> " + c["note"])
-        out.append("")
-        out.append("| series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |")
-        out.append("|---|---|---|---|---|---|---|")
-        for skey, s in c["series"].items():
-            if s.get("deprecated"):
-                continue
-            out.append(
-                "| `{}` | `{}` | {} | {} | {} | {} | {} |".format(
-                    skey,
-                    s["field"],
-                    s["source"],
-                    s["window"],
-                    s["window_days"],
-                    s["denominator"],
-                    s.get("note", ""),
-                )
+def _concept_table_lines(c: dict[str, Any]) -> list[Any]:
+    """一个概念的 series 表格（跳过 deprecated）。"""
+    out = ["", "| series_key | 源字段 | 所属源 | 窗口 | 窗口天数 | 分母 | 备注 |"]
+    out.append("|---|---|---|---|---|---|---|")
+    for skey, s in c["series"].items():
+        if s.get("deprecated"):
+            continue
+        out.append(
+            "| `{}` | `{}` | {} | {} | {} | {} | {} |".format(
+                skey,
+                s["field"],
+                s["source"],
+                s["window"],
+                s["window_days"],
+                s["denominator"],
+                s.get("note", ""),
             )
-        out.append("")
-    out.append("### 元数据字段（非指标：快照日 / 派生列 / 结构列）")
-    out.append("")
-    out.append("| 规范名 | 字段 | 源 | 窗口 | 类型 | 备注 |")
-    out.append("|---|---|---|---|---|---|")
-    for mname, m in META_FIELDS.items():
-        for _skey, s in m["series"].items():
-            out.append(
-                "| `{}` | `{}` | {} | {} | {} | {} |".format(
-                    mname, s["field"], s["source"], s["window"], m["kind"], s.get("note", "")
-                )
-            )
-    out.append("")
-    out.append("### 旧版字段（保留登记；不参与对照 / 不出现在 metrics 视图）")
-    out.append("")
-    out.append(
-        "> 旧版字段保留在注册表里是为了让 `mpdt/metrics.py` 仍能识别上游接口"
-        "历史返回的字段（CSV 导出元数据 `*.metrics.csv` 会标出口径），"
-        "但不参与周报对照、metrics 视图与自动配对。"
-    )
-    for dname, d in DEPRECATED.items():
-        for _skey, s in d["series"].items():
-            out.append(
-                "- `{}` → `{}`：{}".format(dname, d.get("replaced_by", "?"), s.get("note", ""))
-            )
-    out.append("")
-    out.append("### 自动推导的易混淆配对（同一概念多 series）")
-    out.append("")
-    # 按概念聚合：C(N,2) 对折叠成一行表格
-    from collections import defaultdict
+        )
+    return out
 
-    by_cname = defaultdict(list)
-    for cname, a, b, why in auto_pairs():
-        by_cname[cname].append((a, b, why))
-    out.append("| 概念 | 不可直接比的 series 配对 | 主要差异 |")
-    out.append("|---|---|---|")
+
+def _meta_table_lines() -> list[Any]:
+    """元数据字段表（非指标）。"""
+    out = ["| 规范名 | 字段 | 源 | 窗口 | 类型 | 备注 |", "|---|---|---|---|---|---|"]
+    for mname, _skey, s in _meta_series():
+        out.append(
+            "| `{}` | `{}` | {} | {} | {} | {} |".format(
+                mname,
+                s["field"],
+                s["source"],
+                s["window"],
+                META_FIELDS[mname]["kind"],
+                s.get("note", ""),
+            )
+        )
+    return out
+
+
+def _deprecated_lines() -> list[Any]:
+    """旧版字段一行一条：原名 → 替代名：备注。"""
+    out = []
+    for dname, _skey, s in _deprecated_series():
+        replaced = DEPRECATED[dname].get("replaced_by", "?")
+        out.append("- `{}` → `{}`：{}".format(dname, replaced, s.get("note", "")))
+    return out
+
+
+def _pair_table_lines() -> list[Any]:
+    """易混淆配对表：同概念的 C(N,2) 对折叠成一行。"""
+    by_cname: dict = {}
+    for cname, a, b, _why in auto_pairs():
+        by_cname.setdefault(cname, []).append((a, b))
+    out = ["| 概念 | 不可直接比的 series 配对 | 主要差异 |", "|---|---|---|"]
     for cname, pairs in by_cname.items():
         display = CONCEPTS[cname]["display"]
         # 用 a vs b；a vs c；b vs c 形式压缩
-        pair_str = "；".join(f"`{a}` vs `{b}`" for a, b, _ in pairs)
+        pair_str = "；".join(f"`{a}` vs `{b}`" for a, b in pairs)
         # 主要差异：所有 pair 共有的差异点（窗口或分母）合并
         diff_set = set()
-        for a, b, _ in pairs:
+        for a, b in pairs:
             sa, sb = CONCEPTS[cname]["series"][a], CONCEPTS[cname]["series"][b]
             if sa["window"] != sb["window"]:
                 diff_set.add("窗口")
@@ -662,6 +669,35 @@ def readme_section() -> str:
         out.append(
             "| %s（`%s`，%d 对） | %s | %s |" % (display, cname, len(pairs), pair_str, diff_str)
         )
+    return out
+
+
+def readme_section() -> str:
+    """README『指标口径』节（按概念分组；改 CONCEPTS 后重新生成本节保持同步）。"""
+    out = ["## 指标口径（CONCEPTS · 按概念分组）", ""]
+    for cname, c in CONCEPTS.items():
+        out.append("#### {}（`{}`，单位：{}）".format(c["display"], cname, c["unit"]))
+        if c.get("note"):
+            out.append("> " + c["note"])
+        out.extend(_concept_table_lines(c))
+        out.append("")
+    out.append("### 元数据字段（非指标：快照日 / 派生列 / 结构列）")
+    out.append("")
+    out.extend(_meta_table_lines())
+    out.append("")
+    out.append("### 旧版字段（保留登记；不参与对照 / 不出现在 metrics 视图）")
+    out.append("")
+    out.append(
+        "> 旧版字段保留在注册表里是为了让 `mpdt/metrics.py` 仍能识别上游接口"
+        "历史返回的字段（CSV 导出元数据 `*.metrics.csv` 会标出口径），"
+        "但不参与周报对照、metrics 视图与自动配对。"
+    )
+    out.extend(_deprecated_lines())
+    out.append("")
+    out.append("### 自动推导的易混淆配对（同一概念多 series）")
+    out.append("")
+    # 按概念聚合：C(N,2) 对折叠成一行表格
+    out.extend(_pair_table_lines())
     out.append("")
     out.append(
         "> 本节由 `mpdt/metrics.py` CONCEPTS 自动生成（"

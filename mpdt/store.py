@@ -8,6 +8,7 @@ import os
 import sqlite3
 
 from . import metrics as metrics_mod
+from . import shape
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -93,6 +94,15 @@ def csv_metric_meta(source: str, keys) -> list:
     return out
 
 
+def _snapshot_rows(con, source: str) -> list:
+    """该 source 的全部快照（按 stat_date, appmsgid 排序）—— 两个导出共用。"""
+    return con.execute(
+        "SELECT stat_date, appmsgid, itemidx, title, metrics FROM snapshots "
+        "WHERE source=? ORDER BY stat_date, appmsgid",
+        (source,),
+    ).fetchall()
+
+
 def export_json(con, source: str, out_path: str, with_meta=True) -> int:
     """导出指定 source 的快照 JSON（结构化下游友好版，列序与 CSV 版一致）。
 
@@ -100,26 +110,12 @@ def export_json(con, source: str, out_path: str, with_meta=True) -> int:
     records（每行 stat_date+appmsgid+itemidx+title+指标键）/ metrics_meta
     （with_meta=True 时内嵌，行结构与 CSV 伴随文件 *.metrics.csv 完全一致）。
     """
-    rows = con.execute(
-        "SELECT stat_date, appmsgid, itemidx, title, metrics FROM snapshots "
-        "WHERE source=? ORDER BY stat_date, appmsgid",
-        (source,),
-    ).fetchall()
-    keys = sorted({k for _, _, _, _, m in rows for k in json.loads(m)})
-    records = []
-    for sd, am, ix, ti, m in rows:
-        rec = {"stat_date": sd, "appmsgid": am, "itemidx": ix, "title": ti}
-        rec.update(json.loads(m))
-        records.append(rec)
-    payload = {
-        "source": source,
-        "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
-        "columns": ["stat_date", "appmsgid", "itemidx", "title", *keys],
-        "row_count": len(rows),
-        "records": records,
-    }
+    rows = _snapshot_rows(con, source)
+    columns = shape.export_columns(rows)
+    records = shape.export_records(rows, columns)
+    meta = None
     if with_meta:
-        payload["metrics_meta"] = {
+        meta = {
             "columns": [
                 "column",
                 "source",
@@ -128,8 +124,15 @@ def export_json(con, source: str, out_path: str, with_meta=True) -> int:
                 "unit",
                 "cross_source_comparable",
             ],
-            "rows": csv_metric_meta(source, keys),
+            "rows": csv_metric_meta(source, columns),
         }
+    payload = shape.export_payload(
+        source,
+        columns,
+        records,
+        dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        meta,
+    )
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     return len(rows)
@@ -159,18 +162,13 @@ def export_csv(con, source: str, out_path: str, with_meta=True) -> int:
     with_meta=True（默认）时额外写伴随文件 `<out>.metrics.csv`：逐列口径元数据，
     防止混源导出后无从分辨列的源与窗口口径。
     """
-    rows = con.execute(
-        "SELECT stat_date, appmsgid, itemidx, title, metrics FROM snapshots "
-        "WHERE source=? ORDER BY stat_date, appmsgid",
-        (source,),
-    ).fetchall()
-    keys = sorted({k for _, _, _, _, m in rows for k in json.loads(m)})
+    rows = _snapshot_rows(con, source)
+    columns = shape.export_columns(rows)
+    matrix = shape.export_matrix(rows, columns)
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["stat_date", "appmsgid", "itemidx", "title", *keys])
-        for sd, am, ix, ti, m in rows:
-            mm = json.loads(m)
-            w.writerow([sd, am, ix, ti] + [mm.get(k, "") for k in keys])
+        w.writerow(["stat_date", "appmsgid", "itemidx", "title", *columns])
+        w.writerows(matrix)
     if with_meta:
         meta_path = out_path + ".metrics.csv"
         with open(meta_path, "w", newline="") as f:
@@ -178,5 +176,5 @@ def export_csv(con, source: str, out_path: str, with_meta=True) -> int:
             w.writerow(
                 ["column", "source", "window", "denominator", "unit", "cross_source_comparable"]
             )
-            w.writerows(csv_metric_meta(source, keys))
+            w.writerows(csv_metric_meta(source, columns))
     return len(rows)

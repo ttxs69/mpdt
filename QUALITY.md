@@ -62,9 +62,7 @@ pip install -e . && pip install -r requirements-dev.txt
 - 降了 ⇒ 脚本会提示锁定新基线：`python tools/quality_budget.py --update`。
 - `--update` 拒绝把基线调高（只接受变好），所以不存在"为了过门而放宽"。
 
-## 存量债（164 条 ruff / 443 条 mypy）与收敛顺序
-
-按「风险低 × 收益高」排，前三条是下一批要清的：
+## 存量债（ruff 0 / mypy 97）与收敛顺序
 
 | 批 | 项 | 条数 | 怎么清 |
 |---|---|---|---|
@@ -75,10 +73,19 @@ pip install -e . && pip install -r requirements-dev.txt
 | 5 | `E741` 歧义变量名 | 4 | `l` → `line` 等 |
 | 6 | `UP031` `%(name)s` 插值 | 55 | **改前必须先补输出文案的断言**：改错会静默改变客户看到的文字 |
 | 7 | `SIM115` `open()` 未用 `with` | 48 | 逐个看句柄生命周期（CDP/socket 故意跨函数存活，机械套 `with` 会提前关闭） |
-| 8 | `C901` 复杂度 > 10 | 15 | 最大是 `report.generate`（**50**）—— 周报主流程。拆它之前先把分支测试补齐 |
+| 8 | `C901` 复杂度 > 10 | 15 | 最大是 `report.generate`（**50**）—— 周报主流程 |
 
-`C901` 的收敛目标就是 skill 的承诺：`ruff check --select C901 .` 干净。
-现在之所以没做，是因为拆 `generate`（复杂度 50）必须有足够的分支测试兜底，否则是在最关键的输出路径上盲改。
+**以上八批已清零**（`C901` 到 0、`UP031` 到 0、`SIM115` 到 0）。
+剩下的 mypy 97 条按「一处根因解一片」的顺序处理，实测过三条：
+
+| 根因 | 一处改动 | 解掉 |
+|---|---|---|
+| `CONCEPTS` / `META_FIELDS` / `DEPRECATED` 没写类型，被推成 `dict[str, Collection[str]]` | 三个声明注解 | ~60 条 `attr-defined` / `index` |
+| `RES = [None]` 被推成 `list[None]`，于是每个 `RES[0].say` 都报错 | 一行 `RES: list[Any] = [None]` | ~25 条 |
+| 函数签名缺注解（`no-untyped-def` 连带 `no-untyped-call`） | 每个签名补上参数/返回类型 | ~200 条 |
+
+顺序原则：**先找声明型根因（一次解一片），再补签名，最后才逐个 `attr-defined`**。
+倒过来做会反复动同一批代码。
 
 ## 中文化带来的两条豁免（有理由，不是图省事）
 

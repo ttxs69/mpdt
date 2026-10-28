@@ -93,7 +93,7 @@ def _sent_db_path() -> Path:
     return Path(d) / "pushed.sqlite3"
 
 
-def _init_sent(conn):
+def _init_sent(conn: Any) -> Any:
     conn.execute(
         "CREATE TABLE IF NOT EXISTS pushed ("
         " week TEXT NOT NULL, recipient TEXT NOT NULL, md_path TEXT,"
@@ -113,7 +113,7 @@ def already_pushed(week: str, recipient: str) -> bool:
         conn.close()
 
 
-def _mark_pushed(conn, week, recipient, md_path):
+def _mark_pushed(conn: Any, week: Any, recipient: Any, md_path: Any) -> Any:
     from datetime import datetime
 
     conn.execute(
@@ -139,7 +139,7 @@ def _html_inline(html_path: Path) -> str:
 
 def _imap_recent_headers(
     host: str, port: int, user: str, password: str, timeout_s: int = 60, limit: int = 25
-) -> list:
+) -> list[Any]:
     """取收件箱最近 N 封的头部字节（I/O）。失败抛异常，由调用方翻译成人话。"""
     imap = imaplib.IMAP4_SSL(host, port, timeout=timeout_s)
     try:
@@ -309,7 +309,7 @@ def _assert_allowed(recipient: str, week: str, cfg: dict[str, Any], allow_unlist
     _log_unlisted(recipient, week)
 
 
-def _deliver(cfg: dict[str, Any], msg) -> None:
+def _deliver(cfg: dict[str, Any], msg: Any) -> None:
     """真正投递（壳）：认证/网络失败翻译成可操作的 PushError，不静默。"""
     try:
         ctx = ssl.create_default_context()

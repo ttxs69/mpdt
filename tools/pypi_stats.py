@@ -22,11 +22,12 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from typing import Any
 
 PYPISTATS_BASE = "https://pypistats.org/api/packages"
 
 
-def _fetch_json(url, timeout=15):
+def _fetch_json(url: Any, timeout: Any = 15) -> Any:
     """Fetch JSON from pypistats (free, no key). Return dict or raise."""
     req = urllib.request.Request(url, headers={"User-Agent": "mpdt-pypi-watcher/1.0"})
     try:
@@ -39,15 +40,15 @@ def _fetch_json(url, timeout=15):
     return json.loads(raw)
 
 
-def fetch_recent(package):
+def fetch_recent(package: Any) -> Any:
     return _fetch_json(f"{PYPISTATS_BASE}/{package}/recent")
 
 
-def fetch_overall(package):
+def fetch_overall(package: Any) -> Any:
     return _fetch_json(f"{PYPISTATS_BASE}/{package}/overall")
 
 
-def watermark_path(state_dir, package):
+def watermark_path(state_dir: Any, package: Any) -> Any:
     return os.path.join(
         os.path.expanduser(
             state_dir or os.environ.get("WATCHER_STATE_DIR", "~/.hermes/watcher-state")
@@ -56,7 +57,7 @@ def watermark_path(state_dir, package):
     )
 
 
-def _normalize_recent(data):
+def _normalize_recent(data: Any) -> Any:
     return {
         "last_day": int(data.get("last_day", 0)),
         "last_week": int(data.get("last_week", 0)),
@@ -64,7 +65,7 @@ def _normalize_recent(data):
     }
 
 
-def _normalize_overall(data):
+def _normalize_overall(data: Any) -> Any:
     """data = [{"category": "with_mirrors", "date": "yyyy-mm-dd", "downloads": N}, ...]"""
     bucket = {"with_mirrors": {}, "without_mirrors": {}}
     for row in data or []:
@@ -72,7 +73,7 @@ def _normalize_overall(data):
     return bucket
 
 
-def _read_watermark(path):
+def _read_watermark(path: Any) -> Any:
     if not os.path.isfile(path):
         return None
     try:
@@ -82,7 +83,7 @@ def _read_watermark(path):
         return None
 
 
-def _write_watermark(path, payload):
+def _write_watermark(path: Any, payload: Any) -> Any:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
@@ -90,7 +91,7 @@ def _write_watermark(path, payload):
     os.replace(tmp, path)
 
 
-def _diff_marker(a, b):
+def _diff_marker(a: Any, b: Any) -> Any:
     """Return list of changed keys whose value differs."""
     changes = []
     for k in sorted(set(list((a or {}).keys()) + list((b or {}).keys()))):
@@ -101,7 +102,9 @@ def _diff_marker(a, b):
     return changes
 
 
-def _diff_reports(prev: dict, recent: dict, overall: dict) -> list:
+def _diff_reports(
+    prev: dict[str, Any], recent: dict[str, Any], overall: dict[str, Any]
+) -> list[Any]:
     """上一次水位 vs 本次的差异行（recent 三个窗口 + overall 两类镜像）。"""
     diffs = []
     prev_recent = prev.get("recent") or {}
@@ -117,7 +120,7 @@ def _diff_reports(prev: dict, recent: dict, overall: dict) -> list:
     return diffs
 
 
-def cmd_check(args):
+def cmd_check(args: argparse.Namespace) -> int:
     pkg = args.package
     wp = watermark_path(args.state_dir, pkg)
     try:
@@ -155,7 +158,7 @@ def cmd_check(args):
     return 0
 
 
-def cmd_init(args):
+def cmd_init(args: argparse.Namespace) -> int:
     pkg = args.package
     wp = watermark_path(args.state_dir, pkg)
     try:
@@ -176,7 +179,7 @@ def cmd_init(args):
     return 0
 
 
-def cmd_print(args):
+def cmd_print(args: argparse.Namespace) -> int:
     pkg = args.package
     try:
         recent = fetch_recent(pkg)
@@ -190,7 +193,7 @@ def cmd_print(args):
     return 0
 
 
-def main():
+def main() -> int:
     p = argparse.ArgumentParser(description="Watch PyPI download stats (pypistats).")
     p.add_argument("--package", required=True)
     p.add_argument(

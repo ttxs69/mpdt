@@ -3,6 +3,7 @@
 import json
 import os
 import stat
+from typing import Any
 
 from .errors import ConfigError
 
@@ -18,7 +19,7 @@ DEFAULTS = {
 }
 
 
-def load() -> dict:
+def load() -> dict[str, Any]:
     if not os.path.exists(CONFIG_PATH):
         raise ConfigError(f"未找到配置 {CONFIG_PATH}")
     try:
@@ -31,7 +32,7 @@ def load() -> dict:
     return merged
 
 
-def save(cfg: dict) -> None:
+def save(cfg: dict[str, Any]) -> None:
     os.makedirs(CONFIG_DIR, exist_ok=True)
     tmp = CONFIG_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

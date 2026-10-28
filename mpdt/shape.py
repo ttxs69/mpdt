@@ -26,8 +26,8 @@ def select_recent_articles(articles: list[Any], cutoff: str) -> list[Any]:
     规则：发表日缺失或早于 cutoff 的丢掉；同一 (appmsgid, itemidx) 只留第一次出现。
     顺序保持输入顺序（上游按发表时间倒序），因为抓取顺序影响日志可读性。
     """
-    seen: set = set()
-    targets: list = []
+    seen: set[tuple[str, int]] = set()
+    targets: list[tuple[str, int, str]] = []
     for a in articles:
         pub = a.get("publish_date")
         if not pub or pub < cutoff:
@@ -60,7 +60,7 @@ def detail_metrics(d: dict[str, Any], all_scene: int) -> dict[str, Any]:
     return metrics
 
 
-def detail_view(d: dict[str, Any], metrics: dict[str, Any]) -> tuple[dict, str]:
+def detail_view(d: dict[str, Any], metrics: dict[str, Any]) -> tuple[dict[str, Any], str]:
     """一篇的展示视图 → (摘要字段, 一行人读文本)。
 
     摘要字段进 --json 的 items[]；文本进进度输出。放一起是因为两者读同一批
@@ -68,7 +68,7 @@ def detail_view(d: dict[str, Any], metrics: dict[str, Any]) -> tuple[dict, str]:
     """
     breakdown = d.get("channel_breakdown") or []
     top = breakdown[0] if breakdown else {}
-    rec = next((rr for rr in breakdown if rr.get("scene_label") == "推荐"), {})
+    rec: dict[str, Any] = next((rr for rr in breakdown if rr.get("scene_label") == "推荐"), {})
     ratio = metrics.get("finished_read_pv_ratio")
     ratio_txt = f"{100 * ratio:.1f}%" if isinstance(ratio, (int, float)) else "NA"
     summary = {
@@ -102,18 +102,18 @@ def export_columns(rows: list[Any]) -> list[str]:
     return sorted({k for _sd, _am, _ix, _ti, m in rows for k in json.loads(m)})
 
 
-def export_matrix(rows: list[Any], columns: list[str]) -> list[list]:
+def export_matrix(rows: list[Any], columns: list[str]) -> list[list[Any]]:
     """CSV 版行：stat_date/appmsgid/itemidx/title + 指标值（缺列填空串）。"""
     return [
         [sd, am, ix, ti] + [json.loads(m).get(k, "") for k in columns] for sd, am, ix, ti, m in rows
     ]
 
 
-def export_records(rows: list[Any], columns: list[str]) -> list[dict]:
+def export_records(rows: list[Any], columns: list[str]) -> list[dict[str, Any]]:
     """JSON 版行：与 CSV 同列，但保留原始类型（不填空串）。"""
     records = []
     for sd, am, ix, ti, m in rows:
-        rec: dict = {"stat_date": sd, "appmsgid": am, "itemidx": ix, "title": ti}
+        rec: dict[str, Any] = {"stat_date": sd, "appmsgid": am, "itemidx": ix, "title": ti}
         for k in columns:
             mm = json.loads(m)
             if k in mm:
@@ -125,9 +125,9 @@ def export_records(rows: list[Any], columns: list[str]) -> list[dict]:
 def export_payload(
     source: str,
     columns: list[str],
-    records: list[dict],
+    records: list[dict[str, Any]],
     generated_at: str,
-    metrics_meta: dict | None = None,
+    metrics_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """JSON 导出载荷（纯）：generated_at 由壳传入，本函数不读时钟。"""
     payload = {
@@ -142,7 +142,7 @@ def export_payload(
     return payload
 
 
-def to_advice_rows(raw_rows: list, only_dates: set | None = None) -> list:
+def to_advice_rows(raw_rows: list[Any], only_dates: set[Any] | None = None) -> list[Any]:
     """快照原始行 → 诊断行（纯）。
 
     取每个 (appmsgid, itemidx) 的**最新** stat_date 快照 —— 早期快照在新文章还没
@@ -151,7 +151,7 @@ def to_advice_rows(raw_rows: list, only_dates: set | None = None) -> list:
 
     `raw_rows` 是壳按 stat_date 升序取出的 (sd, title, metrics_json, appmsgid, itemidx)。
     """
-    latest: dict = {}
+    latest: dict[tuple[str, int], tuple[Any, Any, Any]] = {}
     for sd, ti, m, am, ix in raw_rows:
         latest[(str(am), int(ix))] = (sd, ti, m)
     rows = []
@@ -184,7 +184,9 @@ def to_advice_rows(raw_rows: list, only_dates: set | None = None) -> list:
     return rows
 
 
-def fetch_window(today, backfill: int | None, from_date: str | None, to_date: str | None):
+def fetch_window(
+    today: Any, backfill: int | None, from_date: str | None, to_date: str | None
+) -> Any:
     """本次拉取的 (begin, end) 日期区间（纯）。
 
     默认 T+1：昨天是最新可得日。--from/--to 显式覆盖，--backfill N 回补 N 天。
@@ -210,7 +212,7 @@ DATACUBE_METRIC_KEYS = (
 )
 
 
-def send_hour_of(create_time) -> str | None:
+def send_hour_of(create_time: Any) -> str | None:
     """群发时刻（北京时间 HH:MM）；上游缺 create_time 时返回 None，不虚构。"""
     if not isinstance(create_time, int) or create_time <= 0:
         return None
@@ -218,7 +220,7 @@ def send_hour_of(create_time) -> str | None:
     return ts.strftime("%H:%M")
 
 
-def publish_list_metrics(article: dict) -> dict:
+def publish_list_metrics(article: dict[str, Any]) -> dict[str, Any]:
     """发表列表一行的指标（纯）。R101：create_time/publish_date/send_hour 随行入库
     （C20 publish_window 消费链的 L1 缺口——解析层早有、入库曾丢弃）。"""
     ct = article.get("create_time")
@@ -230,12 +232,12 @@ def publish_list_metrics(article: dict) -> dict:
     }
 
 
-def datacube_metrics(row: dict) -> dict:
+def datacube_metrics(row: dict[str, Any]) -> dict[str, Any]:
     """datacube 一行的指标（纯）：只取本工具消费的键，上游多给的丢弃。"""
     return {k: row.get(k) for k in DATACUBE_METRIC_KEYS}
 
 
-def mail_subject(raw) -> str:
+def mail_subject(raw: Any) -> str:
     """IMAP 头字节 → 主题字符串（纯）。RFC2047 编码头在这里解码。"""
     if isinstance(raw, str):
         raw = raw.encode()
@@ -243,7 +245,7 @@ def mail_subject(raw) -> str:
     return str(make_header(decode_header(hdr["Subject"] or "")))
 
 
-def subject_hit(subjects: list, needle: str) -> tuple:
+def subject_hit(subjects: list[Any], needle: str) -> tuple[Any, ...]:
     """按给定顺序找主题含 needle 的第一封 → (是否命中, 检查了几封)。"""
     for i, subj in enumerate(subjects, 1):
         if needle and needle in subj:

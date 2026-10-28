@@ -40,7 +40,7 @@ def latest_by_key(con: Any, source: str) -> dict[tuple[str, int], tuple[str, str
     return best
 
 
-def _week_article_keys(con: Any, week_begin: str, week_end: str) -> set:
+def _week_article_keys(con: Any, week_begin: str, week_end: str) -> set[Any]:
     """本周**发表**的文章 key 集合 {(appmsgid, itemidx)}。
 
     R238：宽表（跨 series 对照）原来取全库最新快照 ⇒ 混进两周前的文章。
@@ -58,7 +58,7 @@ def _week_article_keys(con: Any, week_begin: str, week_end: str) -> set:
     return keys
 
 
-def _detail_in_week(con: Any, week_begin: str, week_end: str) -> list:
+def _detail_in_week(con: Any, week_begin: str, week_end: str) -> list[Any]:
     """本周 article_detail 快照，按 (appmsgid, itemidx) 去重取最新，最多 15 条。"""
     det_map = {}
     for stat_date, title, raw, am, ix in con.execute(
@@ -74,7 +74,7 @@ def _detail_in_week(con: Any, week_begin: str, week_end: str) -> list:
     return list(det_map.values())[:15]
 
 
-def _series_cache(con: Any) -> dict:
+def _series_cache(con: Any) -> dict[str, Any]:
     """每个用到的 source 一份「最新快照表」，宽表用。
 
     一次查全（原来每个概念、每条 series 各查一次），结果等价且少打 N 次库。
@@ -88,7 +88,7 @@ def _series_cache(con: Any) -> dict:
     return {src: latest_by_key(con, src) for src in sorted(sources)}
 
 
-def collect(con: Any, week_begin: str, week_end: str) -> dict:
+def collect(con: Any, week_begin: str, week_end: str) -> dict[str, Any]:
     """一次把周报要的所有原始数据查出来 —— 壳层唯一的"取数"入口。
 
     返回的 dict 是纯函数的入参，里面没有连接、没有游标、没有懒加载。
@@ -146,7 +146,7 @@ def _write(out_dir: str, iso_week: str, md: str) -> tuple[str, str]:
 # ─────────────────────────── 编排 ───────────────────────────
 
 
-def generate(con: Any, iso_week: str, out_dir: str) -> dict:
+def generate(con: Any, iso_week: str, out_dir: str) -> dict[str, Any]:
     """生成一周的周报：查库 → 纯函数算 + 排版 → 落盘。"""
     monday, sunday = render.week_bounds(iso_week)
     week_begin, week_end = monday.strftime("%Y-%m-%d"), sunday.strftime("%Y-%m-%d")

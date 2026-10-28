@@ -8,6 +8,7 @@
 
 import contextlib
 import json
+from typing import Any
 
 from ..errors import UpstreamError
 
@@ -34,7 +35,7 @@ _NUM_FIELDS = (
 )
 
 
-def _coerce_row(row: dict) -> dict:
+def _coerce_row(row: dict[str, Any]) -> dict[str, Any]:
     out = dict(row)
     for k in _NUM_FIELDS:
         v = out.get(k)
@@ -46,7 +47,7 @@ def _coerce_row(row: dict) -> dict:
     return out
 
 
-def parse_tmpl17(raw: str) -> list:
+def parse_tmpl17(raw: str) -> list[Any]:
     try:
         d = json.loads(raw)
     except ValueError as e:
@@ -59,7 +60,7 @@ def parse_tmpl17(raw: str) -> list:
     return [_coerce_row(r) for r in rows]
 
 
-def fetch(session, begin: str, end: str, size=40) -> list:
+def fetch(session: Any, begin: str, end: str, size: Any = 40) -> list[Any]:
     """begin/end: YYYYMMDD（Asia/Shanghai 口径，调用方转换）。"""
     raw = session.fetch_text(
         QUERY_JS % (begin, end, size, session.fingerprint, session.ensure_token())

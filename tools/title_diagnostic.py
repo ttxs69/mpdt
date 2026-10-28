@@ -24,6 +24,7 @@ import re
 import sqlite3
 import sys
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -42,7 +43,7 @@ def title_len_chars(s: str) -> int:
     return n
 
 
-def load_external_rules(rules_path: Path):
+def load_external_rules(rules_path: Path) -> Any:
     """从 rules.yaml 读 length_band / ban_patterns；失败回退 P17 默认值。"""
     if rules_path.exists():
         with rules_path.open(encoding="utf-8") as fh:
@@ -71,7 +72,7 @@ def load_external_rules(rules_path: Path):
     }
 
 
-def fetch_publish_list(db_path: str, days: int) -> list:
+def fetch_publish_list(db_path: str, days: int) -> list[Any]:
     """从 mpdt.sqlite3 拉取 publish_list 快照的标题。返回 [{stat_date, title}]."""
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
@@ -87,7 +88,7 @@ def fetch_publish_list(db_path: str, days: int) -> list:
     return [{"stat_date": r[0], "title": r[1]} for r in rows]
 
 
-def split_template_vs_topic(titles: list) -> tuple:
+def split_template_vs_topic(titles: list[Any]) -> tuple[Any, ...]:
     """模板类（流水线自动生成） vs 真·选题类（个人选题）的分流。
 
     模板关键词：含「一览」「GH Trending」「GitHub / HN」「arxiv」「HF / PH」
@@ -103,7 +104,7 @@ def split_template_vs_topic(titles: list) -> tuple:
     return templates, topics
 
 
-def diagnose(titles: list, ext_rules: dict) -> dict:
+def diagnose(titles: list[Any], ext_rules: dict[str, Any]) -> dict[str, Any]:
     """主诊断：长度带 + ban_patterns + 英文实体保留 + 数字密度。"""
     band = ext_rules["length_band"]
     banned = ext_rules["ban_patterns"]
@@ -112,7 +113,7 @@ def diagnose(titles: list, ext_rules: dict) -> dict:
 
     templates, topics = split_template_vs_topic(titles)
 
-    def diag_bucket(bucket, label):
+    def diag_bucket(bucket: Any, label: Any) -> Any:
         in_band, out_short, out_long = [], [], []
         ban_hits = []
         eng_keep = []
@@ -158,7 +159,7 @@ def diagnose(titles: list, ext_rules: dict) -> dict:
     }
 
 
-def render_md(result: dict, days: int) -> str:
+def render_md(result: dict[str, Any], days: int) -> str:
     out = []
     out.append(f"# C20 title_diagnostic · 自家号诊断报告（R140 · {days} 天扫描）")
     out.append("")
@@ -199,7 +200,7 @@ def render_md(result: dict, days: int) -> str:
     return "\n".join(out)
 
 
-def main():
+def main() -> int:
     ap = argparse.ArgumentParser(description="C20 X-title-rule / X-sxs-asset-coverage 自家号诊断")
     ap.add_argument("--days", type=int, default=30, help="拉取快照的天数窗口（默认 30）")
     ap.add_argument("--db", default=DB_DEFAULT, help="mpdt sqlite 路径")

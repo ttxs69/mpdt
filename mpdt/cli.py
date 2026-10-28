@@ -29,7 +29,7 @@ def today_shanghai() -> dt.date:
 class _R:
     """收集单命令的结构化结果：print（人读）+ data（--json 时输出）。"""
 
-    def __init__(self, quiet=False):
+    def __init__(self, quiet: Any = False) -> None:
         self.quiet = quiet  # 非 TTY（管道/重定向/cron）默认静默过程输出
         self.data = None  # dict → --json 时以 JSON 打印
         self.meta = {}  # 机器可读元信息（行数/路径等，与人读文本分离）
@@ -39,22 +39,22 @@ class _R:
         # 和 R239「SMTP 接受 ≠ 送达」是同一类事故。
         self.ok = True
 
-    def say(self, msg):
+    def say(self, msg: Any) -> Any:
         """过程输出（进度条性质）。--json 时一律不出（污染管道）；非 TTY 且未强制 → 静默。"""
         if not self.quiet and not JSON_FLAG[0]:
             print(msg)
 
-    def progress(self, i, n, msg):
+    def progress(self, i: Any, n: Any, msg: Any) -> Any:
         """进度行：[第 N/总] msg（TTY 人读；--json/管道静默）。"""
         self.say(f"  [{i}/{n}] {msg}")
 
-    def out(self, msg, **meta):
+    def out(self, msg: Any, **meta: Any) -> Any:
         """结果输出（人读版）。--json 时不出，改为 JSON。meta 同步进 self.meta。"""
         self.meta.update(meta)
         if not JSON_FLAG[0]:
             print(msg)
 
-    def result(self, ok_msg, data, **meta):
+    def result(self, ok_msg: Any, data: Any, **meta: Any) -> Any:
         """统一收尾：data 为本命令的结构化结果（dict/list）。
 
         `ok=False` 必须同时体现在两处：返回值（exit code）和 --json 的 ok 字段。
@@ -67,20 +67,20 @@ class _R:
             print(ok_msg)
         return 0 if self.ok else 1
 
-    def payload(self):
+    def payload(self) -> Any:
         """--json 时的输出体：{ok, cmd, data, meta}——T1 三态在 main() 里以 exit_code 区分，
         timeout/unknown 不与成功混在同一个 JSON 语义里（写后读回型用户拿 exit code 判定）。"""
         return {"ok": self.ok, "cmd": CMD_NAME[0], "data": self.data, "meta": self.meta}
 
 
-JSON_FLAG = [False]  # main() 解析后置位；模块级因 argparse 在 fn 内之后执行
-CMD_NAME = [""]
+JSON_FLAG: list[bool] = [False]  # main() 解析后置位；模块级因 argparse 在 fn 内之后执行
+CMD_NAME: list[str] = [""]
 
 # 快照数据源（与 store.SCHEMA 注释、metrics.SRC_* 一致）：export --source 合法值
 SOURCES = ["publish_list", "datacube_article", "article_detail"]
 
 
-def cmd_init(args):
+def cmd_init(args: argparse.Namespace) -> int:
     import os
 
     existed = os.path.exists(config.CONFIG_PATH)
@@ -101,7 +101,9 @@ def cmd_init(args):
     )
 
 
-def _ingest_publish_list(r, con, articles: list, stat_date: str) -> None:
+def _ingest_publish_list(
+    r: Any, con: sqlite3.Connection, articles: list[Any], stat_date: str
+) -> None:
     """发表列表入库（壳）：R101 的 create_time/publish_date/send_hour 随行入库。"""
     for i, a in enumerate(articles, 1):
         r.progress(i, len(articles), f"入库 {a['title'][:24]}")
@@ -116,7 +118,7 @@ def _ingest_publish_list(r, con, articles: list, stat_date: str) -> None:
         )
 
 
-def _ingest_datacube(r, con, rows: list, stat_date: str) -> None:
+def _ingest_datacube(r: Any, con: sqlite3.Connection, rows: list[Any], stat_date: str) -> None:
     """datacube 文章级数据入库（壳）。"""
     for i, row in enumerate(rows, 1):
         r.progress(i, len(rows), f"入库 {row.get('title', '')[:24]}")
@@ -131,7 +133,7 @@ def _ingest_datacube(r, con, rows: list, stat_date: str) -> None:
         )
 
 
-def cmd_fetch(args):
+def cmd_fetch(args: argparse.Namespace) -> int:
     r = RES[0]
     cfg = config.load()
     from .fetchers import datacube, publish_list
@@ -171,7 +173,7 @@ def cmd_fetch(args):
     )
 
 
-RES = [None]  # main() 里按 TTY 情况构造
+RES: list[Any] = [None]  # main() 里按 TTY 情况构造
 
 
 def _usage_error(cmd: str, message: str) -> int:
@@ -188,7 +190,9 @@ def _usage_error(cmd: str, message: str) -> int:
     return 2
 
 
-def _snapshot_one_detail(s, con, mid, idx, pub, stat_date, ad_mod) -> tuple[dict, str]:
+def _snapshot_one_detail(
+    s: Any, con: sqlite3.Connection, mid: Any, idx: Any, pub: Any, stat_date: Any, ad_mod: Any
+) -> tuple[dict, str]:
     """抓一篇并入库 → (摘要, 一行人读文本)。失败抛异常，由调用方计数。"""
     d = ad_mod.fetch(s, mid, idx, pub)
     metrics = shape.detail_metrics(d, ad_mod.ALL_SCENE)
@@ -196,7 +200,7 @@ def _snapshot_one_detail(s, con, mid, idx, pub, stat_date, ad_mod) -> tuple[dict
     return shape.detail_view(d, metrics)
 
 
-def _detail_targets(args, s, today, pl_mod):
+def _detail_targets(args: argparse.Namespace, s: Any, today: Any, pl_mod: Any) -> Any:
     """本次要抓哪几篇 → [(mid, idx, pub)]；参数不合法返回 None。
 
     --msgid 直指一篇；否则按 --recent 天从发表记录里筛（去重、按发表日）。
@@ -213,7 +217,9 @@ def _detail_targets(args, s, today, pl_mod):
     return targets
 
 
-def _snapshot_all_details(r, s, con, targets, stat_date, ad_mod) -> tuple[int, int, list]:
+def _snapshot_all_details(
+    r: Any, s: Any, con: sqlite3.Connection, targets: Any, stat_date: Any, ad_mod: Any
+) -> tuple[int, int, list]:
     """逐篇抓取 + 入库（壳）：单篇失败不打断整批，但会计数并留日志。"""
     ok, fail, items = 0, 0, []
     for t_i, (mid, idx, pub) in enumerate(targets, 1):
@@ -232,7 +238,7 @@ def _snapshot_all_details(r, s, con, targets, stat_date, ad_mod) -> tuple[int, i
     return ok, fail, items
 
 
-def cmd_detail(args):
+def cmd_detail(args: argparse.Namespace) -> int:
     """单篇渠道页（FR3②）：完读率/时长/互动 + 逐渠道人数构成（含推荐/搜一搜）。"""
     r = RES[0]
     cfg = config.load()
@@ -271,7 +277,7 @@ def cmd_detail(args):
     )
 
 
-def cmd_report(args):
+def cmd_report(args: argparse.Namespace) -> int:
     r = RES[0]
     cfg = config.load()
     con = store.connect(cfg["db_path"])
@@ -296,7 +302,7 @@ def cmd_report(args):
     )
 
 
-def cmd_push(args):
+def cmd_push(args: argparse.Namespace) -> int:
     """把周报推送给客户（邮件）。失败显式报错，不静默。"""
     r = RES[0]
     cfg = config.load()
@@ -348,7 +354,7 @@ def cmd_push(args):
     )
 
 
-def _verify_after_send(args, week) -> dict:
+def _verify_after_send(args: argparse.Namespace, week: Any) -> dict[str, Any]:
     """推送后的送达回查（壳）：--verify 才查，查不到就说"未验证"，不编。"""
     if not args.verify:
         return {"delivered": None, "note": "未验证（外部收件箱无法回查）"}
@@ -367,7 +373,7 @@ def _verify_after_send(args, week) -> dict:
 # ---- doctor / status：一站式体检与状态查询（UX 打磨，全部只读） ----
 
 
-def _db_readonly_stats(db_path):
+def _db_readonly_stats(db_path: Any) -> Any:
     """以只读方式打开 db，返回 {exists, rows_by_source, latest_snapshot, db_bytes, error}。"""
     out = {
         "exists": os.path.exists(db_path),
@@ -433,7 +439,7 @@ def _doctor_config_checks() -> tuple[Any, ...]:
     return items, cfg
 
 
-def _doctor_cdp_check(cfg) -> dict[str, Any]:
+def _doctor_cdp_check(cfg: dict[str, Any]) -> dict[str, Any]:
     """④ Chrome CDP 可达性（5s 超时，只探不发命令）。"""
     cdp_url = (cfg or {}).get("chrome_cdp", config.DEFAULTS["chrome_cdp"])
     detail = f"{cdp_url} 不可达（先以 --remote-debugging-port=9222 启动 Chrome）"
@@ -467,7 +473,7 @@ def _doctor_cdp_check(cfg) -> dict[str, Any]:
         }
 
 
-def _doctor_token_check(cfg) -> dict[str, Any]:
+def _doctor_token_check(cfg: dict[str, Any]) -> dict[str, Any]:
     """⑤ token（cfg 里有则只报存在性，绝不回显）。"""
     has_token = bool((cfg or {}).get("token"))
     return {
@@ -479,7 +485,7 @@ def _doctor_token_check(cfg) -> dict[str, Any]:
     }
 
 
-def _doctor_data_checks(cfg) -> list[Any]:
+def _doctor_data_checks(cfg: dict[str, Any]) -> list[Any]:
     """⑥ db 文件 / 各源行数 / 最近快照日。"""
     items = []
     db_path = (cfg or {}).get("db_path", config.DEFAULTS["db_path"])
@@ -517,7 +523,7 @@ def _doctor_data_checks(cfg) -> list[Any]:
     return items
 
 
-def _data_file_item(db_path: str, st: dict) -> dict:
+def _data_file_item(db_path: str, st: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": "数据库文件",
         "status": "ok",
@@ -526,7 +532,7 @@ def _data_file_item(db_path: str, st: dict) -> dict:
     }
 
 
-def _data_fresh_item(st: dict, total_rows: int) -> dict:
+def _data_fresh_item(st: dict[str, Any], total_rows: int) -> dict[str, Any]:
     """快照新鲜度（纯判断 + 文案）：7 天内算新鲜。"""
     latest = st["latest_snapshot"]
     days_ago = None
@@ -546,7 +552,7 @@ def _data_fresh_item(st: dict, total_rows: int) -> dict:
     }
 
 
-def cmd_doctor(args):
+def cmd_doctor(args: argparse.Namespace) -> int:
     """一键体检（只读）：配置 / 权限 / Chrome CDP / db / 快照新鲜度逐项检查。
 
     人读输出 ✓/✗/⚠ 清单；--json 输出同结构 data；始终 exit 0（诊断结果不是命令成败）。
@@ -578,7 +584,7 @@ def cmd_doctor(args):
     )
 
 
-def cmd_status(args):
+def cmd_status(args: argparse.Namespace) -> int:
     """本地库状态一览（只读）：db 位置 / 各源行数 / 最新快照日 / 库体积。"""
     r = RES[0]
     db_path = config.DEFAULTS["db_path"]
@@ -676,7 +682,7 @@ def _print_auto_pairs(query: str | None) -> None:
         print(f"⚠ {cname}：`{a}` vs `{b}` — {why}")
 
 
-def cmd_metrics(args):
+def cmd_metrics(args: argparse.Namespace) -> int:
     """指标口径查询：按概念分组的人读视图（口径唯一事实源=metrics.py CONCEPTS）。
 
     输出顺序：① 概念 + series；② 元数据字段；③ 旧版字段；④ 自动配对提醒。
@@ -705,7 +711,7 @@ def cmd_metrics(args):
     )
 
 
-def cmd_export(args):
+def cmd_export(args: argparse.Namespace) -> int:
     r = RES[0]
     cfg = config.load()
     con = store.connect(cfg["db_path"])
@@ -969,7 +975,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv=None) -> int:
+def main(argv: Any = None) -> int:
     p = build_parser()
     p.parse_known_args(argv)[0] if argv is not None else None
     args = p.parse_args(argv)

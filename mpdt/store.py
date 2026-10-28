@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import os
 import sqlite3
+from typing import Any
 
 from . import metrics as metrics_mod
 from . import shape
@@ -36,8 +37,15 @@ def connect(db_path: str) -> sqlite3.Connection:
 
 
 def upsert(
-    con, source: str, stat_date: str, appmsgid, itemidx, title, metrics: dict, fetched_at=None
-):
+    con: sqlite3.Connection,
+    source: str,
+    stat_date: str,
+    appmsgid: Any,
+    itemidx: Any,
+    title: Any,
+    metrics: dict[str, Any],
+    fetched_at: Any = None,
+) -> Any:
     fetched_at = fetched_at or dt.datetime.now().astimezone().isoformat(timespec="seconds")
     con.execute(
         "INSERT INTO snapshots VALUES (?,?,?,?,?,?,?) "
@@ -55,7 +63,7 @@ def upsert(
     )
 
 
-def log_run(con, cmd: str, ok: bool, detail: str = ""):
+def log_run(con: sqlite3.Connection, cmd: str, ok: bool, detail: str = "") -> Any:
     con.execute(
         "INSERT INTO journal(ran_at, cmd, ok, detail) VALUES (?,?,?,?)",
         (dt.datetime.now().astimezone().isoformat(timespec="seconds"), cmd, int(ok), detail),
@@ -63,7 +71,7 @@ def log_run(con, cmd: str, ok: bool, detail: str = ""):
     con.commit()
 
 
-def csv_metric_meta(source: str, keys) -> list:
+def csv_metric_meta(source: str, keys: Any) -> list[Any]:
     """CSV 各指标列的口径元数据行（源字段, 所属源, 窗口, 分母, 单位, 是否跨源可比）。
 
     口径唯一来源 = metrics.py 注册表（CONCEPTS / META_FIELDS / DEPRECATED）；
@@ -94,7 +102,7 @@ def csv_metric_meta(source: str, keys) -> list:
     return out
 
 
-def _snapshot_rows(con, source: str) -> list:
+def _snapshot_rows(con: sqlite3.Connection, source: str) -> list[Any]:
     """该 source 的全部快照（按 stat_date, appmsgid 排序）—— 两个导出共用。"""
     return con.execute(
         "SELECT stat_date, appmsgid, itemidx, title, metrics FROM snapshots "
@@ -103,7 +111,7 @@ def _snapshot_rows(con, source: str) -> list:
     ).fetchall()
 
 
-def export_json(con, source: str, out_path: str, with_meta=True) -> int:
+def export_json(con: sqlite3.Connection, source: str, out_path: str, with_meta: bool = True) -> int:
     """导出指定 source 的快照 JSON（结构化下游友好版，列序与 CSV 版一致）。
 
     载荷：source / generated_at / columns（键并集，排序同 CSV）/ row_count /
@@ -156,7 +164,7 @@ def _meta_kind(reg_key: str) -> str:
     return ""
 
 
-def export_csv(con, source: str, out_path: str, with_meta=True) -> int:
+def export_csv(con: sqlite3.Connection, source: str, out_path: str, with_meta: bool = True) -> int:
     """导出指定 source 的快照 CSV。
 
     with_meta=True（默认）时额外写伴随文件 `<out>.metrics.csv`：逐列口径元数据，
@@ -180,7 +188,7 @@ def export_csv(con, source: str, out_path: str, with_meta=True) -> int:
     return len(rows)
 
 
-def load_advice_source(con) -> list:
+def load_advice_source(con: sqlite3.Connection) -> list[Any]:
     """诊断层要的原始快照行（按 stat_date 升序）—— 只查询，不做整形。
 
     整形在 shape.to_advice_rows（纯）：同一条规则既服务周报也服务 CLI，

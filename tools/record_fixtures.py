@@ -8,6 +8,7 @@ import re
 import sys
 import time
 import urllib.request
+from typing import Any
 
 import websocket
 
@@ -22,7 +23,7 @@ ws = websocket.create_connection(page[0]["webSocketDebuggerUrl"], timeout=90)
 mid = [0]
 
 
-def cmd(method, **params):
+def cmd(method: Any, **params: Any) -> Any:
     mid[0] += 1
     ws.send(json.dumps({"id": mid[0], "method": method, "params": params}))
     ws.settimeout(60)
@@ -55,7 +56,7 @@ with open(os.path.expanduser("~/moneymaker/tools/mp-datacube.py"), encoding="utf
 print("fingerprint loaded:", FP[:6] + "..." if FP else "MISSING")
 
 
-def run_js(js):
+def run_js(js: Any) -> Any:
     r = cmd("Runtime.evaluate", expression=js, returnByValue=True, awaitPromise=True)
     return r.get("result", {}).get("result", {}).get("value", "")
 

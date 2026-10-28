@@ -54,7 +54,7 @@ METRIC_KEYS = (
 )
 
 
-def _match_brace(text: str, start: int):
+def _match_brace(text: str, start: int) -> Any:
     """从 text[start] 的 '{' 起，返回配对 '}' 的下标；不配对返回 None。
 
     字符串里的括号和转义不参与配对 —— 微信返回的 JSON 里标题/正文含大量引号与
@@ -83,7 +83,7 @@ def _match_brace(text: str, start: int):
     return None
 
 
-def _json_after(text: str, key: str):
+def _json_after(text: str, key: str) -> Any:
     """取 `key:` 之后第一个平衡括号 JSON 文本（字符串内括号/转义安全）。"""
     i = text.find(key + ":")
     if i < 0:
@@ -183,7 +183,7 @@ def channel_breakdown(
     口径提示：同一用户多渠道会重复计数 → 占比之和可 >100%（与页面「阅读渠道构成」一致）。
     """
 
-    def _norm(d):
+    def _norm(d: Any) -> Any:
         return (d or "").replace("/", "-")
 
     lo, hi = None, None
@@ -220,7 +220,7 @@ def channel_breakdown(
     return out
 
 
-def fetch(session, appmsgid, itemidx, publish_date) -> dict[str, Any]:
+def fetch(session: Any, appmsgid: Any, itemidx: Any, publish_date: Any) -> dict[str, Any]:
     """publish_date: YYYY-MM-DD（页面 URL 参数口径）。"""
     raw = session.fetch_text(
         DETAIL_JS % (appmsgid, int(itemidx), publish_date, session.ensure_token())

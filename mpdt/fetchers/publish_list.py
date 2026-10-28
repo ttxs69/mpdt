@@ -43,7 +43,7 @@ def _publish_page_entries(outer: dict[str, Any], raw: str) -> tuple[Any, ...]:
     return entries, pp
 
 
-def _entry_publish_info(entry: dict[str, Any]):
+def _entry_publish_info(entry: dict[str, Any]) -> Any:
     """单条的 publish_info；坏行返回 None（不炸整批，journal 里可见）。"""
     info = entry.get("publish_info")
     if isinstance(info, str):
@@ -54,7 +54,7 @@ def _entry_publish_info(entry: dict[str, Any]):
     return info if isinstance(info, dict) else None
 
 
-def _publish_timestamp(info: dict[str, Any]):
+def _publish_timestamp(info: dict[str, Any]) -> Any:
     """群发时刻：优先 publish_info.create_time，贴图类回退 sent_info.time。"""
     ct = (info.get("publish_info") or {}).get("create_time")
     if isinstance(ct, int) and ct > 0:
@@ -65,7 +65,7 @@ def _publish_timestamp(info: dict[str, Any]):
     return (info.get("sent_info") or {}).get("time")
 
 
-def _publish_date(ct) -> str:
+def _publish_date(ct: Any) -> str:
     """epoch 秒 → Asia/Shanghai 的 YYYY-MM-DD；非法值返回空串。"""
     if not (isinstance(ct, int) and ct > 0):
         return ""
@@ -73,7 +73,7 @@ def _publish_date(ct) -> str:
     return stamp.date().isoformat()
 
 
-def _articles_from_info(info: dict[str, Any], ct, pub_date: str) -> list[Any]:
+def _articles_from_info(info: dict[str, Any], ct: Any, pub_date: str) -> list[Any]:
     """一条群发记录 → 若干 article（已删除的子项跳过）。"""
     out = []
     for a in info.get("appmsg_info") or []:
@@ -122,7 +122,7 @@ def parse_publish_list(raw: str) -> dict[str, Any]:
     }
 
 
-def fetch(session, count=20) -> dict[str, Any]:
+def fetch(session: Any, count: Any = 20) -> dict[str, Any]:
     raw = session.fetch_text(LIST_JS % (count, session.ensure_token()))
     out = parse_publish_list(raw)
     assert out["articles"] or out["total_publish"] == 0, (

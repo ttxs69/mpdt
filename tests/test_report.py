@@ -21,7 +21,12 @@ from mpdt import (  # noqa: E402
 
 
 def _detail_metrics(
-    read_uv: Any, fr: Any, pub="2026-10-12", rec_pct=45.0, msg_pct=30.0, srch_pct=8.0
+    read_uv: Any,
+    fr: Any,
+    pub: Any = "2026-10-12",
+    rec_pct: Any = 45.0,
+    msg_pct: Any = 30.0,
+    srch_pct: Any = 8.0,
 ) -> Any:
     """造 article_detail 快照 metrics（与 cmd_detail 入库字段对齐）。"""
     return {

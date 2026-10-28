@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 import statistics
+from typing import Any
 
 # 命中阈值：推荐渠道阅读人数 ≥ 此值算「吃到推荐」。
 # **唯一常量源**（R241）：mpdt 自抓路径（advice.py）和客户导出路径（diagnose.py）
@@ -63,7 +64,7 @@ def title_family(title: str) -> str:
     return t[:18] if t else "(无标题)"
 
 
-def group_rows(rows, hit_rec: int = HIT_REC) -> dict:
+def group_rows(rows: Any, hit_rec: int = HIT_REC) -> dict[str, Any]:
     """按内容家族分组，统计组内分布，并识别「孤峰」。
 
     返回 {family: {n, rec_med, rec_max, hit_n, hit_rate, spike, spike_max, spike_titles, read_med}}
@@ -95,7 +96,7 @@ def group_rows(rows, hit_rec: int = HIT_REC) -> dict:
     return out
 
 
-def family_verdict(rows, hit_rec: int = HIT_REC, min_n: int = 2) -> dict:
+def family_verdict(rows: Any, hit_rec: int = HIT_REC, min_n: int = 2) -> dict[str, Any]:
     """家族级判定：返回 verdict + 可执行动作。
 
     verdict:

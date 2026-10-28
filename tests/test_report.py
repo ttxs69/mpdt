@@ -7,12 +7,13 @@ import os
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from typing import Any
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from mpdt import (
+from mpdt import (  # noqa: E402
     report,
     store,
 )
@@ -80,12 +81,12 @@ class ReportBase(unittest.TestCase):
             store.upsert(
                 self.con,
                 "datacube_article",
-                "2026-10-1%d" % (2 + i),
+                f"2026-10-1{2 + i}",
                 am,
                 1,
                 "文章" + am,
                 {
-                    "refdate": "2026-10-1%d" % (2 + i),
+                    "refdate": f"2026-10-1{2 + i}",
                     "finish_read_rate": fr,
                     "read_rate": 0.5,
                     "total_pv": 100 + i,
@@ -237,7 +238,7 @@ class TestCrossSourceTable(ReportBase):
         blocks = report.cross_source_table(self.con)
         self.assertGreaterEqual(len({b["concept"] for b in blocks}), 2)
 
-    def test_one_block_per_concept_not_C_N_2(self) -> None:
+    def test_one_block_per_concept_not_c_n_2(self) -> None:
         # 之前点赞概念 4 series → C(4,2)=6 张表；现在每概念只 1 张
         blocks = report.cross_source_table(self.con)
         like_blocks = [b for b in blocks if b["concept"] == "like"]
@@ -302,7 +303,7 @@ class TestHtmlTemplate(ReportBase):
         )
         con.commit()
         out = report.generate(con, "2026-W42", self.out_dir)
-        h = open(out["html"]).read()
+        h = Path(out["html"]).read_text(encoding="utf-8")
         self.assertNotIn("<script>alert", h)
         self.assertIn("&lt;script&gt;", h)
 
@@ -349,7 +350,7 @@ class TestGenerate(ReportBase):
 
     def test_md_content_calibration_and_top_ordering(self) -> None:
         out = report.generate(self.con, "2026-W42", self.out_dir)
-        md = open(out["md"]).read()
+        md = Path(out["md"]).read_text(encoding="utf-8")
         self.assertIn("口径说明", md)
         self.assertIn("按概念分组", md)
         self.assertIn("2026-10-12 ~ 2026-10-18", md)
@@ -360,7 +361,7 @@ class TestGenerate(ReportBase):
         self.assertIn("单篇渠道构成", md)
         self.assertIn("45.0", md)
         self.assertIn("25.0%", md)
-        html = open(out["html"]).read()
+        html = Path(out["html"]).read_text(encoding="utf-8")
         # 阶段 6 模板化：不再是 <pre> 裸转义，表格应为真 <table>
         self.assertNotIn("<pre>", html)
         self.assertIn("<table>", html)
@@ -373,7 +374,7 @@ class TestGenerate(ReportBase):
 
     def test_md_contains_wide_table_for_read_completion(self) -> None:
         out = report.generate(self.con, "2026-W42", self.out_dir)
-        md = open(out["md"]).read()
+        md = Path(out["md"]).read_text(encoding="utf-8")
         self.assertIn("跨 series 对照", md)
         # 完读率宽表：列头 dc7 + ad30 都出现
         self.assertIn("完读率(dc7·7天)", md)
@@ -391,7 +392,7 @@ class TestGenerate(ReportBase):
 
     def test_md_folds_empty_concepts_into_summary(self) -> None:
         out = report.generate(self.con, "2026-W42", self.out_dir)
-        md = open(out["md"]).read()
+        md = Path(out["md"]).read_text(encoding="utf-8")
         # 无数据概念折叠成一行（带"缺字段 X"诊断：fixture 没存 like_cnt/comment_cnt/share_uv）
         self.assertIn("本周无可对照数据的概念", md)
         # 缺字段 article_detail 字段：点赞/评论/分享
@@ -416,7 +417,7 @@ class TestGenerate(ReportBase):
         )
         con.commit()
         out = report.generate(con, "2026-W42", tmp)
-        md = open(out["md"]).read()
+        md = Path(out["md"]).read_text(encoding="utf-8")
         # 全 0 的 like/comment 概念应被折叠到「无信号」汇总
         self.assertIn("无信号", md)
         # 不应再展示它们的宽表（避免噪音）
@@ -429,14 +430,14 @@ class TestGenerate(ReportBase):
     def test_md_no_pairwise_block(self) -> None:
         # 回归保护：周报里不应再出现旧式「series `a` vs `b`」小节（每概念一张宽表）
         out = report.generate(self.con, "2026-W42", self.out_dir)
-        md = open(out["md"]).read()
+        md = Path(out["md"]).read_text(encoding="utf-8")
         self.assertNotIn("series `pl` vs `dc7`", md)
         self.assertNotIn("series `pl` vs `ad30`", md)
 
     def test_empty_week_still_generates_report(self) -> None:
         out = report.generate(self.con, "2026-W20", self.out_dir)
         self.assertEqual(out["rows"], 0)
-        md = open(out["md"]).read()
+        md = Path(out["md"]).read_text(encoding="utf-8")
         self.assertIn("本周无 datacube 快照数据", md)
         self.assertIn("口径说明", md)
 
@@ -454,7 +455,7 @@ class TestGenerate(ReportBase):
         out = report.generate(self.con, "2026-W42", self.out_dir)
         # R238：rows = 本周发表的文章数（两源并集按标题去重：mA/mB/mC）
         self.assertEqual(out["rows"], 3)
-        md = open(out["md"]).read()
+        md = Path(out["md"]).read_text(encoding="utf-8")
         self.assertNotIn("mX", md)
 
 
@@ -511,7 +512,7 @@ class TestFoldingBehavior(unittest.TestCase):
         )
         con.commit()
         out = report.generate(con, "2026-W42", tmp)
-        md = open(out["md"]).read()
+        md = Path(out["md"]).read_text(encoding="utf-8")
         # 折叠汇总行
         self.assertIn("本周无可对照数据的概念", md)
         # 完读率也无数据（ad30 不存在）
@@ -576,7 +577,7 @@ class TestFoldingBehavior(unittest.TestCase):
         )
         con.commit()
         out = report.generate(con, "2026-W42", tmp)
-        open(out["md"]).read()
+        Path(out["md"]).read_text(encoding="utf-8")
         # 所有 ≥2 series 概念都有数据
         for c in ("read_completion", "read_volume", "share", "like", "comment"):
             self.assertIn(c, out["concepts_compared"])
@@ -613,7 +614,7 @@ class TestFakePerfectFinishRate(unittest.TestCase):
             )
         with tempfile.TemporaryDirectory() as d:
             out = report.generate(con, "2026-W43", d)
-            md = open(out["md"], encoding="utf-8").read()
+            md = Path(out["md"]).read_text(encoding="utf-8")
         return md
 
     def test_fake_100pct_excluded_from_top(self) -> None:
@@ -674,7 +675,7 @@ class TestWeekSemanticsIsPublishDateNotFetchDate(unittest.TestCase):
         )
         con.commit()
         with tempfile.TemporaryDirectory() as d:
-            md = open(report.generate(con, "2026-W43", d)["md"], encoding="utf-8").read()
+            md = Path(report.generate(con, "2026-W43", d)["md"]).read_text(encoding="utf-8")
         self.assertIn("本周发的", md)
         self.assertIn("**本周发表的文章**：**1** 篇", md)
 
@@ -697,7 +698,7 @@ class TestWeekSemanticsIsPublishDateNotFetchDate(unittest.TestCase):
         )
         con.commit()
         with tempfile.TemporaryDirectory() as d:
-            md = open(report.generate(con, "2026-W43", d)["md"], encoding="utf-8").read()
+            md = Path(report.generate(con, "2026-W43", d)["md"]).read_text(encoding="utf-8")
         self.assertNotIn("上周发的", md)
         self.assertIn("**本周发表的文章**：**0** 篇", md)
 
@@ -720,7 +721,7 @@ class TestWeekSemanticsIsPublishDateNotFetchDate(unittest.TestCase):
             )
         con.commit()
         with tempfile.TemporaryDirectory() as d:
-            md = open(report.generate(con, "2026-W43", d)["md"], encoding="utf-8").read()
+            md = Path(report.generate(con, "2026-W43", d)["md"]).read_text(encoding="utf-8")
         self.assertIn("**本周发表的文章**：**1** 篇", md)
         # Top 表里同一篇只能出现一次
         top = md.split("## 完读率 Top")[1].split("## 跨 series")[0]
@@ -740,7 +741,7 @@ class TestWeekSemanticsIsPublishDateNotFetchDate(unittest.TestCase):
         )
         con.commit()
         with tempfile.TemporaryDirectory() as d:
-            md = open(report.generate(con, "2026-W43", d)["md"], encoding="utf-8").read()
+            md = Path(report.generate(con, "2026-W43", d)["md"]).read_text(encoding="utf-8")
         self.assertIn("老数据", md)
 
 
@@ -772,7 +773,7 @@ class TestTopTablePercentFormat(unittest.TestCase):
         )
         con.commit()
         out = rep.generate(con, "2026-W42", os.path.join(tmp, "r"))
-        md = open(out["md"]).read()
+        md = Path(out["md"]).read_text(encoding="utf-8")
         self.assertIn("36.8%", md)
         self.assertIn("6.5%", md)
         self.assertNotIn("0.3684", md)

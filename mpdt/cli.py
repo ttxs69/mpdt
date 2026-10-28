@@ -12,6 +12,7 @@ import stat as stat_mod
 import sys
 import urllib.error
 import urllib.request
+from typing import Any
 
 from . import __version__, config, push, report, store
 from . import metrics as metrics_mod
@@ -289,21 +290,12 @@ def cmd_detail(args):
                 "recommend_pct": (rec or {}).get("read_pct"),
             }
         )
+        ratio = metrics.get("finished_read_pv_ratio")
+        ratio_txt = f"{100 * ratio:.1f}%" if isinstance(ratio, (int, float)) else "NA"
         r.say(
-            "  ✓ %s_%d 阅读%s 完读率%s 推荐%s%% 首渠道=%s(%s%%)"
-            % (
-                d["appmsgid"],
-                d["itemidx"],
-                metrics.get("read_uv"),
-                (
-                    "%.1f%%" % (100 * metrics["finished_read_pv_ratio"])
-                    if isinstance(metrics.get("finished_read_pv_ratio"), (int, float))
-                    else "NA"
-                ),
-                (rec or {}).get("read_pct", "NA"),
-                (top or {}).get("scene_label", "NA"),
-                (top or {}).get("read_pct", "NA"),
-            )
+            f"  ✓ {d['appmsgid']}_{d['itemidx']} 阅读{metrics.get('read_uv')} 完读率{ratio_txt} "
+            f"推荐{(rec or {}).get('read_pct', 'NA')}% "
+            f"首渠道={(top or {}).get('scene_label', 'NA')}({(top or {}).get('read_pct', 'NA')}%)"
         )
     store.log_run(
         con,
@@ -313,7 +305,7 @@ def cmd_detail(args):
     )
     con.commit()
     if targets and ok == 0:
-        raise UpstreamError("单篇渠道页全部抓取失败（%d 篇）" % fail)
+        raise UpstreamError(f"单篇渠道页全部抓取失败（{fail} 篇）")
     return r.result(
         f"单篇渠道页快照完成：{ok} 篇入库（失败 {fail}）→ {cfg['db_path']}",
         {
@@ -449,46 +441,48 @@ def _db_readonly_stats(db_path):
     return out
 
 
-def cmd_doctor(args):
-    """一键体检（只读）：配置 / 权限 / Chrome CDP / db / 快照新鲜度逐项检查。
-
-    人读输出 ✓/✗/⚠ 清单；--json 输出同结构 data；始终 exit 0（诊断结果不是命令成败）。
-    """
-    r = RES[0]
+def _doctor_config_checks() -> tuple[Any, ...]:
+    """①②③ 配置存在 / 可解析 / 权限 600 → (items, cfg)。"""
     items = []
-
-    def add(name, status, detail, data=None):
-        items.append({"name": name, "status": status, "detail": detail, **(data or {})})
-
-    # ① 配置文件存在
     cfg_exists = os.path.exists(config.CONFIG_PATH)
-    add(
-        "配置文件",
-        "ok" if cfg_exists else "fail",
-        config.CONFIG_PATH if cfg_exists else f"未找到 {config.CONFIG_PATH} → 运行 mpdt init",
+    items.append(
+        {
+            "name": "配置文件",
+            "status": "ok" if cfg_exists else "fail",
+            "detail": config.CONFIG_PATH
+            if cfg_exists
+            else f"未找到 {config.CONFIG_PATH} → 运行 mpdt init",
+        }
     )
-
-    # ② 配置可解析（存在时）
+    if not cfg_exists:
+        return items, None
     cfg = None
-    if cfg_exists:
-        try:
-            cfg = config.load()
-            add("配置解析", "ok", "JSON 可读，默认项已合并")
-        except Exception as e:
-            add("配置解析", "fail", f"损坏（{e}）→ 删除后重跑 mpdt init")
+    try:
+        cfg = config.load()
+        items.append({"name": "配置解析", "status": "ok", "detail": "JSON 可读，默认项已合并"})
+    except Exception as e:
+        items.append(
+            {"name": "配置解析", "status": "fail", "detail": f"损坏（{e}）→ 删除后重跑 mpdt init"}
+        )
+    mode = stat_mod.S_IMODE(os.stat(config.CONFIG_PATH).st_mode)
+    perms = oct(mode)[2:]
+    if mode == 0o600:
+        items.append({"name": "配置权限", "status": "ok", "detail": "600（仅本用户可读写）"})
+    else:
+        items.append(
+            {
+                "name": "配置权限",
+                "status": "warn",
+                "detail": f"{perms}（期望 600）→ chmod 600 " + config.CONFIG_PATH,
+            }
+        )
+    return items, cfg
 
-    # ③ 配置权限 600
-    if cfg_exists:
-        mode = stat_mod.S_IMODE(os.stat(config.CONFIG_PATH).st_mode)
-        perms = oct(mode)[2:]
-        if mode == 0o600:
-            add("配置权限", "ok", "600（仅本用户可读写）")
-        else:
-            add("配置权限", "warn", f"{perms}（期望 600）→ chmod 600 " + config.CONFIG_PATH)
 
-    # ④ Chrome CDP 可达性（5s 超时，只探不发命令）
+def _doctor_cdp_check(cfg) -> dict[str, Any]:
+    """④ Chrome CDP 可达性（5s 超时，只探不发命令）。"""
     cdp_url = (cfg or {}).get("chrome_cdp", config.DEFAULTS["chrome_cdp"])
-    cdp_detail, mp_tab = f"{cdp_url} 不可达（先以 --remote-debugging-port=9222 启动 Chrome）", False
+    detail = f"{cdp_url} 不可达（先以 --remote-debugging-port=9222 启动 Chrome）"
     try:
         tabs = json.load(urllib.request.urlopen(cdp_url + "/json", timeout=5))
         mp_tab = any(
@@ -497,61 +491,112 @@ def cmd_doctor(args):
             if isinstance(t, dict)
         )
         if mp_tab:
-            cdp_detail = f"{cdp_url} 可达，且存在已登录态的 mp.weixin 标签页"
+            detail = f"{cdp_url} 可达，且存在已登录态的 mp.weixin 标签页"
         else:
-            cdp_detail = (
+            detail = (
                 f"{cdp_url} 可达，但无 mp.weixin 标签页 → 在该 Chrome 里打开并登录 mp.weixin.qq.com"
             )
-        add(
-            "Chrome CDP",
-            "ok" if mp_tab else "warn",
-            cdp_detail,
-            {"cdp_url": cdp_url, "mp_tab": mp_tab},
-        )
+        return {
+            "name": "Chrome CDP",
+            "status": "ok" if mp_tab else "warn",
+            "detail": detail,
+            "cdp_url": cdp_url,
+            "mp_tab": mp_tab,
+        }
     except Exception as e:
-        add("Chrome CDP", "fail", cdp_detail, {"cdp_url": cdp_url, "error": str(e)[:120]})
+        return {
+            "name": "Chrome CDP",
+            "status": "fail",
+            "detail": detail,
+            "cdp_url": cdp_url,
+            "error": str(e)[:120],
+        }
 
-    # ⑤ token（cfg 里有则只报存在性，绝不回显）
+
+def _doctor_token_check(cfg) -> dict[str, Any]:
+    """⑤ token（cfg 里有则只报存在性，绝不回显）。"""
     has_token = bool((cfg or {}).get("token"))
-    add(
-        "token",
-        "ok" if has_token else "warn",
-        "已缓存（隐藏显示，过期时 fetch 会经 CDP 自动刷新）"
+    return {
+        "name": "token",
+        "status": "ok" if has_token else "warn",
+        "detail": "已缓存（隐藏显示，过期时 fetch 会经 CDP 自动刷新）"
         if has_token
         else "未缓存（首次 fetch 会经 Chrome 自动获取，不影响使用）",
-    )
+    }
 
-    # ⑥ db 文件 / 各源行数 / 最近快照日
+
+def _doctor_data_checks(cfg) -> list[Any]:
+    """⑥ db 文件 / 各源行数 / 最近快照日。"""
+    items = []
     db_path = (cfg or {}).get("db_path", config.DEFAULTS["db_path"])
     st = _db_readonly_stats(db_path)
     if not st["exists"]:
-        add("数据库文件", "warn", f"{db_path} 尚不存在（首次 fetch 时自动创建）")
-    elif st["error"]:
-        add("数据库文件", "warn", f"{db_path} 存在但只读打开失败：{st['error']}（可能正在被写入）")
-    else:
-        add(
-            "数据库文件",
-            "ok",
-            f"{db_path}（{st['db_bytes']} 字节）",
-            {"rows_by_source": st["rows_by_source"]},
+        items.append(
+            {
+                "name": "数据库文件",
+                "status": "warn",
+                "detail": f"{db_path} 尚不存在（首次 fetch 时自动创建）",
+            }
         )
-        total_rows = sum(st["rows_by_source"].values())
-        if total_rows == 0:
-            add("快照数据", "warn", "0 行（库为空 → 运行 mpdt fetch 建立首份快照）")
-        else:
-            latest = st["latest_snapshot"]
-            days_ago = None
-            if latest:
-                with contextlib.suppress(ValueError):
-                    days_ago = (today_shanghai() - dt.date.fromisoformat(latest)).days
-            add(
-                "快照数据",
-                "ok" if days_ago is not None and days_ago <= 7 else "warn",
-                f"共 {total_rows} 行，最近快照日 {latest}"
-                + (f"（{days_ago} 天前）" if days_ago is not None else "")
-                + ("" if days_ago is not None and days_ago <= 7 else " → 建议运行 mpdt fetch 更新"),
-                {"latest_snapshot": latest, "days_ago": days_ago},
-            )
+        return items
+    if st["error"]:
+        items.append(
+            {
+                "name": "数据库文件",
+                "status": "warn",
+                "detail": f"{db_path} 存在但只读打开失败：{st['error']}（可能正在被写入）",
+            }
+        )
+        return items
+    items.append(
+        {
+            "name": "数据库文件",
+            "status": "ok",
+            "detail": f"{db_path}（{st['db_bytes']} 字节）",
+            "rows_by_source": st["rows_by_source"],
+        }
+    )
+    total_rows = sum(st["rows_by_source"].values())
+    if total_rows == 0:
+        items.append(
+            {
+                "name": "快照数据",
+                "status": "warn",
+                "detail": "0 行（库为空 → 运行 mpdt fetch 建立首份快照）",
+            }
+        )
+        return items
+    latest = st["latest_snapshot"]
+    days_ago = None
+    if latest:
+        with contextlib.suppress(ValueError):
+            days_ago = (today_shanghai() - dt.date.fromisoformat(latest)).days
+    fresh = days_ago is not None and days_ago <= 7
+    detail = f"共 {total_rows} 行，最近快照日 {latest}"
+    detail += f"（{days_ago} 天前）" if days_ago is not None else ""
+    detail += "" if fresh else " → 建议运行 mpdt fetch 更新"
+    items.append(
+        {
+            "name": "快照数据",
+            "status": "ok" if fresh else "warn",
+            "detail": detail,
+            "latest_snapshot": latest,
+            "days_ago": days_ago,
+        }
+    )
+    return items
+
+
+def cmd_doctor(args):
+    """一键体检（只读）：配置 / 权限 / Chrome CDP / db / 快照新鲜度逐项检查。
+
+    人读输出 ✓/✗/⚠ 清单；--json 输出同结构 data；始终 exit 0（诊断结果不是命令成败）。
+    """
+    r = RES[0]
+    items, cfg = _doctor_config_checks()
+    items.append(_doctor_cdp_check(cfg))
+    items.append(_doctor_token_check(cfg))
+    items.extend(_doctor_data_checks(cfg))
 
     # ---- 人读输出（--json 走 r.result 通道）----
     if not JSON_FLAG[0]:
@@ -607,6 +652,73 @@ def cmd_status(args):
     return r.result(f"库状态：{db_path}（{sum(st['rows_by_source'].values())} 行，{size_h}）", data)
 
 
+def _print_concepts(concepts: list[Any]) -> None:
+    """① 指标概念 + series。"""
+    for c in concepts:
+        print("## {}（{}）".format(c["display"], c["concept"]))
+        if c.get("note"):
+            print("  > " + c["note"])
+        for s in c["series"]:
+            print(
+                f"  - `{s['key']}` · {s['source']} · 字段 `{s['field']}` · 窗口 {s['window']} ({s['window_days']}天) · 分母「{s['denominator']}」"
+            )
+            if s.get("note"):
+                print("      注：" + s["note"])
+        print()
+
+
+def _print_meta_fields(query: str | None) -> None:
+    """② 元数据字段（非指标）——仅当 query 不限 concept / 匹配元数据 key 时显示。"""
+    if query and not any(
+        query.lower() in k.lower() or query.lower() in m["display"]
+        for k, m in metrics_mod.META_FIELDS.items()
+    ):
+        return
+    print("── 元数据字段（非指标：快照日 / 派生列 / 结构列） ──")
+    for mname, m in metrics_mod.META_FIELDS.items():
+        if query and query.lower() not in (mname + m["display"]).lower():
+            continue
+        for _skey, s in m["series"].items():
+            print(
+                f"  - `{mname}`（{m['display']} / {m['kind']}）：源 {s['source']}，字段 `{s['field']}`，{s['window']}，{s['window_days']}天窗口"
+            )
+    print()
+
+
+def _print_deprecated(query: str | None) -> None:
+    """③ 旧版字段。"""
+    if not metrics_mod.DEPRECATED:
+        return
+    if query and not any(
+        query.lower() in (dn + d.get("display", "")).lower()
+        for dn, d in metrics_mod.DEPRECATED.items()
+    ):
+        return
+    print("── 旧版字段（保留登记；不参与对照 / 不出现在 metrics 视图） ──")
+    for dname, d in metrics_mod.DEPRECATED.items():
+        if query and query.lower() not in (dname + d.get("display", "")).lower():
+            continue
+        print(
+            "  - `{}`（{}）→ 新字段 `{}`；保留供 CSV 元数据识别上游历史返回。".format(
+                dname, d.get("display", ""), d.get("replaced_by", "?")
+            )
+        )
+    print()
+
+
+def _print_auto_pairs(query: str | None) -> None:
+    """④ 自动配对提醒。"""
+    pairs = metrics_mod.auto_pairs()
+    if not pairs:
+        return
+    print("── 跨 series 易混淆配对（自动推导：同概念多 series） ──")
+    for cname, a, b, why in pairs:
+        display = metrics_mod.CONCEPTS[cname]["display"]
+        if query and query.lower() not in (cname + display + a + b).lower():
+            continue
+        print(f"⚠ {cname}：`{a}` vs `{b}` — {why}")
+
+
 def cmd_metrics(args):
     """指标口径查询：按概念分组的人读视图（口径唯一事实源=metrics.py CONCEPTS）。
 
@@ -615,84 +727,12 @@ def cmd_metrics(args):
     r = RES[0]
     concepts = metrics_mod.to_concepts_view(args.query)
     if not JSON_FLAG[0]:
-        # ① 指标概念 + series
-        for c in concepts:
-            print("## {}（{}）".format(c["display"], c["concept"]))
-            if c.get("note"):
-                print("  > " + c["note"])
-            for s in c["series"]:
-                print(
-                    "  - `%s` · %s · 字段 `%s` · 窗口 %s (%d天) · 分母「%s」"
-                    % (
-                        s["key"],
-                        s["source"],
-                        s["field"],
-                        s["window"],
-                        s["window_days"],
-                        s["denominator"],
-                    )
-                )
-                if s.get("note"):
-                    print("      注：" + s["note"])
-            print()
-        # ② 元数据字段（非指标）— 仅当 query 不限 concept / 匹配元数据 key 时显示
-        if not args.query or any(
-            args.query.lower() in k.lower() or args.query.lower() in m["display"]
-            for k, m in metrics_mod.META_FIELDS.items()
-        ):
-            print("── 元数据字段（非指标：快照日 / 派生列 / 结构列） ──")
-            for mname, m in metrics_mod.META_FIELDS.items():
-                if args.query and args.query.lower() not in (mname + m["display"]).lower():
-                    continue
-                for _skey, s in m["series"].items():
-                    print(
-                        "  - `%s`（%s / %s）：源 %s，字段 `%s`，%s，%d天窗口"
-                        % (
-                            mname,
-                            m["display"],
-                            m["kind"],
-                            s["source"],
-                            s["field"],
-                            s["window"],
-                            s["window_days"],
-                        )
-                    )
-            print()
-        # ③ 旧版字段
-        if metrics_mod.DEPRECATED and (
-            not args.query
-            or any(
-                args.query.lower() in (dn + d.get("display", "")).lower()
-                for dn, d in metrics_mod.DEPRECATED.items()
-            )
-        ):
-            print("── 旧版字段（保留登记；不参与对照 / 不出现在 metrics 视图） ──")
-            for dname, d in metrics_mod.DEPRECATED.items():
-                if args.query and args.query.lower() not in (dname + d.get("display", "")).lower():
-                    continue
-                print(
-                    "  - `{}`（{}）→ 新字段 `{}`；保留供 CSV 元数据识别上游历史返回。".format(
-                        dname, d.get("display", ""), d.get("replaced_by", "?")
-                    )
-                )
-            print()
-        # ④ 自动配对提醒
-        pairs = metrics_mod.auto_pairs()
-        if pairs:
-            print("── 跨 series 易混淆配对（自动推导：同概念多 series） ──")
-            for cname, a, b, why in pairs:
-                display = metrics_mod.CONCEPTS[cname]["display"]
-                if args.query and args.query.lower() not in (cname + display + a + b).lower():
-                    continue
-                print(f"⚠ {cname}：`{a}` vs `{b}` — {why}")
+        _print_concepts(concepts)
+        _print_meta_fields(args.query)
+        _print_deprecated(args.query)
+        _print_auto_pairs(args.query)
     return r.result(
-        "共 %d 个概念，%d 个 series；%d 个元数据字段；%d 个旧版字段"
-        % (
-            len(concepts),
-            sum(len(c["series"]) for c in concepts),
-            len(metrics_mod.META_FIELDS),
-            len(metrics_mod.DEPRECATED),
-        ),
+        f"共 {len(concepts)} 个概念，{sum(len(c['series']) for c in concepts)} 个 series；{len(metrics_mod.META_FIELDS)} 个元数据字段；{len(metrics_mod.DEPRECATED)} 个旧版字段",
         {
             "concepts": concepts,
             "auto_pairs": [

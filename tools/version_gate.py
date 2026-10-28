@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 INIT_RE = re.compile(r"^__version__\s*=\s*['\"]([^'\"]+)['\"]", re.M)
 PYPROJECT_RE = re.compile(r'^version\s*=\s*["\']([^"\']+)["\']', re.M)
@@ -41,8 +42,8 @@ def read_versions(root: str) -> tuple[str, str]:
         if not os.path.isfile(p):
             sys.stderr.write(f"version_gate: missing {p}\n")
             sys.exit(2)
-    pp_text = open(pp, encoding="utf-8").read()
-    init_text = open(init, encoding="utf-8").read()
+    pp_text = Path(pp).read_text(encoding="utf-8")
+    init_text = Path(init).read_text(encoding="utf-8")
     m1 = PYPROJECT_RE.search(pp_text)
     m2 = INIT_RE.search(init_text)
     if not m1 or not m2:

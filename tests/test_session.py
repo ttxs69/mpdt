@@ -89,17 +89,21 @@ class SessionConnectTests(unittest.TestCase):
 
     def test_connect_cdp_unreachable(self) -> None:
         s = session.Session(_cfg())
-        with mock.patch.object(session.urllib.request, "urlopen", side_effect=OSError("refused")):
-            with self.assertRaises(AuthError) as ctx:
-                s._connect()
+        with (
+            mock.patch.object(session.urllib.request, "urlopen", side_effect=OSError("refused")),
+            self.assertRaises(AuthError) as ctx,
+        ):
+            s._connect()
         self.assertIn("无法连接 Chrome CDP", str(ctx.exception))
 
     def test_connect_no_weixin_tab(self) -> None:
         s = session.Session(_cfg())
         tabs = [{"type": "page", "url": "https://example.com"}]
-        with mock.patch.object(session.urllib.request, "urlopen", return_value=_Resp(tabs)):
-            with self.assertRaises(AuthError) as ctx:
-                s._connect()
+        with (
+            mock.patch.object(session.urllib.request, "urlopen", return_value=_Resp(tabs)),
+            self.assertRaises(AuthError) as ctx,
+        ):
+            s._connect()
         self.assertIn("没有 mp.weixin 标签页", str(ctx.exception))
 
     def test_connect_success_sends_page_enable(self) -> None:

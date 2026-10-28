@@ -15,6 +15,7 @@
 """
 
 import json
+from typing import Any
 
 from ..errors import UpstreamError
 
@@ -53,48 +54,59 @@ METRIC_KEYS = (
 )
 
 
+def _match_brace(text: str, start: int):
+    """从 text[start] 的 '{' 起，返回配对 '}' 的下标；不配对返回 None。
+
+    字符串里的括号和转义不参与配对 —— 微信返回的 JSON 里标题/正文含大量引号与
+    大括号，按字符数括号会切错位置。
+    """
+    depth = 0
+    in_str = False
+    esc = False
+    for k in range(start, len(text)):
+        ch = text[k]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return k
+    return None
+
+
 def _json_after(text: str, key: str):
-    """取 `key:` 之后的第一个平衡括号 JSON 文本（字符串内括号/转义安全）。"""
+    """取 `key:` 之后第一个平衡括号 JSON 文本（字符串内括号/转义安全）。"""
     i = text.find(key + ":")
     if i < 0:
         return None
     j = text.find("{", i)
     if j < 0:
         return None
-    depth, k, instr, esc = 0, j, False, False
-    while k < len(text):
-        ch = text[k]
-        if instr:
-            if esc:
-                esc = False
-            elif ch == "\\":
-                esc = True
-            elif ch == '"':
-                instr = False
-        else:
-            if ch == '"':
-                instr = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    return text[j : k + 1]
-        k += 1
-    return None
+    end = _match_brace(text, j)
+    return None if end is None else text[j : end + 1]
 
 
-def parse_detail(raw: str) -> dict:
-    """raw = 'HTTP状态|HTML'。结构断言失败 → UpstreamError（退出码 4）。"""
+def _split_status(raw: str) -> tuple[Any, ...]:
+    """'HTTP状态|HTML' → (status, html)，并在此处拦掉空响应和非 200。"""
     status, _, html = (raw or "").partition("|")
     if not html:
         raise UpstreamError("detailpage 返回为空: " + (raw or "")[:200])
     if status.strip() != "200":
         raise UpstreamError(f"detailpage HTTP {status.strip()}: {html[:200]}")
-    if "articleData" not in html:
-        raise UpstreamError(
-            "detailpage 结构变更：未找到 articleData（可能参数/版本变化）: " + html[:200]
-        )
+    return status, html
+
+
+def _parse_parts(html: str) -> dict[str, Any]:
+    """页面里三段内嵌 JSON（articleData / articleSummaryData / detailData）。"""
     parts = {}
     for key in ("articleData", "articleSummaryData", "detailData"):
         seg = _json_after(html, key)
@@ -102,19 +114,13 @@ def parse_detail(raw: str) -> dict:
             raise UpstreamError(f"detailpage 结构变更：{key} 缺失: {html[:200]}")
         try:
             parts[key] = json.loads(seg)
-        except ValueError:
-            raise UpstreamError(f"detailpage {key} 非 JSON: {seg[:200]}")
+        except ValueError as e:
+            raise UpstreamError(f"detailpage {key} 非 JSON: {seg[:200]}") from e
+    return parts
 
-    art = parts["articleData"]
-    msgid = str(art.get("msgid") or "")
-    if "_" not in msgid:
-        raise UpstreamError("articleData.msgid 缺失/异常: " + str(art.get("msgid"))[:80])
-    appmsgid, _, itemidx = msgid.partition("_")
-    new_data = art.get("article_data_new")
-    if not isinstance(new_data, dict):
-        raise UpstreamError("article_data_new 缺失（旧口径文章？）: " + msgid)
 
-    rows = (parts.get("articleSummaryData") or {}).get("list") or []
+def _channel_rows(rows: list[Any]) -> list[Any]:
+    """articleSummaryData.list → 渠道行（跳过没有 scene 的行）。"""
     channels = []
     for r in rows:
         scene = r.get("scene")
@@ -129,6 +135,29 @@ def parse_detail(raw: str) -> dict:
                 "share_user": r.get("share_user", 0),
             }
         )
+    return channels
+
+
+def parse_detail(raw: str) -> dict[str, Any]:
+    """raw = 'HTTP状态|HTML'。结构断言失败 → UpstreamError（退出码 4）。"""
+    _status, html = _split_status(raw)
+    if "articleData" not in html:
+        raise UpstreamError(
+            "detailpage 结构变更：未找到 articleData（可能参数/版本变化）: " + html[:200]
+        )
+    parts = _parse_parts(html)
+
+    art = parts["articleData"]
+    msgid = str(art.get("msgid") or "")
+    if "_" not in msgid:
+        raise UpstreamError("articleData.msgid 缺失/异常: " + str(art.get("msgid"))[:80])
+    appmsgid, _, itemidx = msgid.partition("_")
+    new_data = art.get("article_data_new")
+    if not isinstance(new_data, dict):
+        raise UpstreamError("article_data_new 缺失（旧口径文章？）: " + msgid)
+
+    rows = (parts.get("articleSummaryData") or {}).get("list") or []
+    channels = _channel_rows(rows)
     out = {
         "appmsgid": appmsgid,
         "itemidx": int(itemidx or 1),
@@ -146,8 +175,8 @@ def parse_detail(raw: str) -> dict:
 
 
 def channel_breakdown(
-    channels: list, days: int | None = None, publish_date: str | None = None
-) -> list:
+    channels: list[Any], days: int | None = None, publish_date: str | None = None
+) -> list[Any]:
     """渠道构成：聚合「除 9999 外」各 scene 的 read_user/share_user，占比分母=「全部」合计。
 
     days 给定则只统计发表后 days 天（含发表日，publish_date 需为 YYYY-MM-DD 或 YYYY/MM/DD）。
@@ -191,7 +220,7 @@ def channel_breakdown(
     return out
 
 
-def fetch(session, appmsgid, itemidx, publish_date) -> dict:
+def fetch(session, appmsgid, itemidx, publish_date) -> dict[str, Any]:
     """publish_date: YYYY-MM-DD（页面 URL 参数口径）。"""
     raw = session.fetch_text(
         DETAIL_JS % (appmsgid, int(itemidx), publish_date, session.ensure_token())

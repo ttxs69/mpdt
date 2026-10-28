@@ -40,24 +40,30 @@ class TestMain(unittest.TestCase):
 
     def test_match_returns_ok(self) -> None:
         self._write_readme("# identical content\n")
-        with patch.object(readme_audit, "fetch_pypi_desc", return_value="# identical content\n"):
-            with patch("sys.argv", ["readme_audit", "--repo", self.tmpdir]):
-                rc = readme_audit.main()
-                self.assertEqual(rc, 0)
+        with (
+            patch.object(readme_audit, "fetch_pypi_desc", return_value="# identical content\n"),
+            patch("sys.argv", ["readme_audit", "--repo", self.tmpdir]),
+        ):
+            rc = readme_audit.main()
+            self.assertEqual(rc, 0)
 
     def test_diff_returns_1_strict(self) -> None:
         self._write_readme("# local v2\n")
-        with patch.object(readme_audit, "fetch_pypi_desc", return_value="# remote v1\n"):
-            with patch("sys.argv", ["readme_audit", "--repo", self.tmpdir, "--strict-diff"]):
-                rc = readme_audit.main()
-                self.assertEqual(rc, 1)
+        with (
+            patch.object(readme_audit, "fetch_pypi_desc", return_value="# remote v1\n"),
+            patch("sys.argv", ["readme_audit", "--repo", self.tmpdir, "--strict-diff"]),
+        ):
+            rc = readme_audit.main()
+            self.assertEqual(rc, 1)
 
     def test_diff_returns_0_non_strict(self) -> None:
         self._write_readme("# local v2\n")
-        with patch.object(readme_audit, "fetch_pypi_desc", return_value="# remote v1\n"):
-            with patch("sys.argv", ["readme_audit", "--repo", self.tmpdir]):
-                rc = readme_audit.main()
-                self.assertEqual(rc, 0)
+        with (
+            patch.object(readme_audit, "fetch_pypi_desc", return_value="# remote v1\n"),
+            patch("sys.argv", ["readme_audit", "--repo", self.tmpdir]),
+        ):
+            rc = readme_audit.main()
+            self.assertEqual(rc, 0)
 
     def test_missing_readme_returns_4(self) -> None:
         self.tmpdir = tempfile.mkdtemp()

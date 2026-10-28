@@ -6,6 +6,7 @@
 口径：仅统计发表后 7 天内数据；total_pv 只算送达（群发）阅读（README 口径表）。
 """
 
+import contextlib
 import json
 
 from ..errors import UpstreamError
@@ -39,18 +40,17 @@ def _coerce_row(row: dict) -> dict:
         v = out.get(k)
         if isinstance(v, str):
             t = v.strip().strip("'")
-            try:
+            # 非数值字符串原样保留，由上游异常路径兜底
+            with contextlib.suppress(ValueError):
                 out[k] = int(t) if t.isdigit() else float(t)
-            except ValueError:
-                pass  # 非数值字符串原样保留，由上游异常路径兜底
     return out
 
 
 def parse_tmpl17(raw: str) -> list:
     try:
         d = json.loads(raw)
-    except ValueError:
-        raise UpstreamError("datacube 非JSON: " + raw[:200])
+    except ValueError as e:
+        raise UpstreamError("datacube 非JSON: " + raw[:200]) from e
     if "data" not in d or "base_resp" not in d:
         raise UpstreamError("datacube 结构变更（data/base_resp 缺失）: " + raw[:200])
     rows = d.get("data") or []

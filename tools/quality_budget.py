@@ -29,6 +29,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "quality_budget.json"
@@ -68,6 +69,32 @@ def save(d: dict[str, int]) -> None:
     BASELINE.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _report_regression(regressed: dict[str, Any], ruff_out: str, mypy_out: str) -> int:
+    """打印回归明细（带最后 12 行工具输出），返回 1。"""
+    print("❌ 质量债上涨了（棘轮只许下降）：")
+    for k, (b, v) in regressed.items():
+        print(f"   {k}: {b} → {v}  (+{v - b})")
+    if "ruff" in regressed:
+        print("\n--- ruff ---")
+        print("\n".join(ruff_out.strip().splitlines()[-12:]))
+    if "mypy" in regressed:
+        print("\n--- mypy ---")
+        print("\n".join(mypy_out.strip().splitlines()[-12:]))
+    return 1
+
+
+def _update_baseline(cur: dict[str, Any], base: dict[str, Any]) -> int:
+    """--update：只许把基线调小。"""
+    worse = {k: (base.get(k, 10**9), v) for k, v in cur.items() if v > base.get(k, 10**9)}
+    if worse:
+        for k, (b, v) in worse.items():
+            print(f"❌ 拒绝把 {k} 基线从 {b} 调到更差的 {v}")
+        return 1
+    save(cur)
+    print(f"✅ 基线已更新：{cur}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="质量门预算棘轮：存量债只许降不许涨")
     ap.add_argument("--update", action="store_true", help="用当前值覆盖基线（只在数字变小时可用）")
@@ -85,14 +112,7 @@ def main() -> int:
     base = load()
 
     if a.update:
-        worse = {k: (base.get(k, 10**9), v) for k, v in cur.items() if v > base.get(k, 10**9)}
-        if worse:
-            for k, (b, v) in worse.items():
-                print(f"❌ 拒绝把 {k} 基线从 {b} 调到更差的 {v}")
-            return 1
-        save(cur)
-        print(f"✅ 基线已更新：{cur}")
-        return 0
+        return _update_baseline(cur, base)
 
     if not base:
         print("⚠️ 还没有基线，先建一份：--update")
@@ -103,16 +123,7 @@ def main() -> int:
     improved = {k: (base.get(k, 0), v) for k, v in cur.items() if v < base.get(k, 0)}
 
     if regressed:
-        print("❌ 质量债上涨了（棘轮只许下降）：")
-        for k, (b, v) in regressed.items():
-            print(f"   {k}: {b} → {v}  (+{v - b})")
-        if "ruff" in regressed:
-            print("\n--- ruff ---")
-            print("\n".join(ruff_out.strip().splitlines()[-12:]))
-        if "mypy" in regressed:
-            print("\n--- mypy ---")
-            print("\n".join(mypy_out.strip().splitlines()[-12:]))
-        return 1
+        return _report_regression(regressed, ruff_out, mypy_out)
 
     msg = "✅ 预算通过：" + "；".join(
         f"{k} {cur[k]}" + (f"（基线 {base[k]}，已降 {base[k] - cur[k]}）" if k in improved else "")

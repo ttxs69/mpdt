@@ -22,9 +22,10 @@ def load() -> dict:
     if not os.path.exists(CONFIG_PATH):
         raise ConfigError(f"未找到配置 {CONFIG_PATH}")
     try:
-        cfg = json.load(open(CONFIG_PATH))
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            cfg = json.load(f)
     except (ValueError, OSError) as e:
-        raise ConfigError(f"配置损坏（{e}）：删除后重跑 mpdt init")
+        raise ConfigError(f"配置损坏（{e}）：删除后重跑 mpdt init") from e
     merged = dict(DEFAULTS)
     merged.update(cfg)
     return merged
@@ -33,12 +34,13 @@ def load() -> dict:
 def save(cfg: dict) -> None:
     os.makedirs(CONFIG_DIR, exist_ok=True)
     tmp = CONFIG_PATH + ".tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)  # 600
     os.replace(tmp, CONFIG_PATH)
     # 写后读回（T2 断言）：cfg 未含 db_path 时文件里也没有该键，读回侧同样取默认值再比对
-    saved = json.load(open(CONFIG_PATH))
+    with open(CONFIG_PATH, encoding="utf-8") as f:
+        saved = json.load(f)
     assert saved.get("db_path", DEFAULTS["db_path"]) == cfg.get("db_path", DEFAULTS["db_path"]), (
         "config write-then-readback failed"
     )

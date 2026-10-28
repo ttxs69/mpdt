@@ -33,6 +33,35 @@ DEFAULT_TARGETS = [
 ]
 
 
+def _match_brace(text: str, start: int):
+    """从 text[start] 的 '{' 起，返回配对 '}' 的下标；不配对返回 None。
+
+    字符串里的括号和转义不参与配对 —— 微信返回的 JSON 里标题/正文含大量引号与
+    大括号，按字符数括号会切错位置。
+    """
+    depth = 0
+    in_str = False
+    esc = False
+    for k in range(start, len(text)):
+        ch = text[k]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return k
+    return None
+
+
 def _json_after(text: str, key: str):
     """取 `key:` 之后第一个平衡括号 JSON 文本（字符串内括号/转义安全）。"""
     i = text.find(key + ":")
@@ -41,27 +70,8 @@ def _json_after(text: str, key: str):
     j = text.find("{", i)
     if j < 0:
         return None
-    depth, k, instr, esc = 0, j, False, False
-    while k < len(text):
-        ch = text[k]
-        if instr:
-            if esc:
-                esc = False
-            elif ch == "\\":
-                esc = True
-            elif ch == '"':
-                instr = False
-        else:
-            if ch == '"':
-                instr = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    return text[j : k + 1]
-        k += 1
-    return None
+    end = _match_brace(text, j)
+    return None if end is None else text[j : end + 1]
 
 
 def extract_cgi_data(html: str):
@@ -124,35 +134,24 @@ def main():
     print("token:", tok[:4] + "...")
 
     for mid, idx, pub in targets:
-        js = """
-        (async () => {
-          const res = await fetch('/misc/appmsganalysis?action=detailpage&msgid=%s_%d&publish_date=%s&type=int&pageVersion=1&token=%s&lang=zh_CN', {credentials:'include'});
+        js = f"""
+        (async () => {{
+          const res = await fetch('/misc/appmsganalysis?action=detailpage&msgid={mid}_{idx}&publish_date={pub}&type=int&pageVersion=1&token={tok}&lang=zh_CN', {{credentials:'include'}});
           const t = await res.text();
           return res.status + '|' + t;
-        })()""" % (mid, idx, pub, tok)
+        }})()"""
         raw = run_js(js) or ""
         status, _, html = raw.partition("|")
         fx, parts = extract_cgi_data(html)
         if status != "200" or fx is None:
-            print(
-                "SKIP %s_%d status=%s parsed=%s len=%d"
-                % (mid, idx, status, fx is not None, len(html))
-            )
+            print(f"SKIP {mid}_{idx} status={status} parsed={fx is not None} len={len(html)}")
             continue
-        path = os.path.join(OUT, "article_detail_%s_%d.html" % (mid, idx))
+        path = os.path.join(OUT, f"article_detail_{mid}_{idx}.html")
         with open(path, "w") as f:
             f.write(fx)
-        print(
-            "OK %s_%d (%s) -> %d bytes  title=%r  read_uv=%s"
-            % (
-                mid,
-                idx,
-                pub,
-                len(fx),
-                parts["articleData"].get("title", "")[:18],
-                (parts["articleData"].get("article_data_new") or {}).get("read_uv"),
-            )
-        )
+        title_hint = parts["articleData"].get("title", "")[:18]
+        read_uv = (parts["articleData"].get("article_data_new") or {}).get("read_uv")
+        print(f"OK {mid}_{idx} ({pub}) -> {len(fx)} bytes  title={title_hint!r}  read_uv={read_uv}")
         time.sleep(2)
 
 

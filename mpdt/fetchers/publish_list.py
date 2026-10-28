@@ -9,7 +9,9 @@
 双重 JSON：publish_page 与 publish_info 均为字符串，需二次 decode。
 """
 
+import datetime as _dt
 import json
+from typing import Any
 
 from ..errors import UpstreamError
 
@@ -20,71 +22,99 @@ LIST_JS = """
 })()"""
 
 
-def parse_publish_list(raw: str) -> dict:
+def _decode_outer(raw: str) -> dict[str, Any]:
+    try:
+        return json.loads(raw)
+    except ValueError as e:
+        raise UpstreamError("publish_list 外层非 JSON: " + raw[:200]) from e
+
+
+def _publish_page_entries(outer: dict[str, Any], raw: str) -> tuple[Any, ...]:
+    """publish_page 可能是一层字符串再套一层 JSON → (entries, pp)。"""
+    pp = outer.get("publish_page")
+    if isinstance(pp, str):
+        try:
+            pp = json.loads(pp)
+        except ValueError as e:
+            raise UpstreamError("publish_page 二次解码失败: " + str(pp)[:200]) from e
+    entries = pp.get("publish_list") if isinstance(pp, dict) else None
+    if not isinstance(entries, list):
+        raise UpstreamError("publish_list[] 缺失（结构变更）: " + raw[:200])
+    return entries, pp
+
+
+def _entry_publish_info(entry: dict[str, Any]):
+    """单条的 publish_info；坏行返回 None（不炸整批，journal 里可见）。"""
+    info = entry.get("publish_info")
+    if isinstance(info, str):
+        try:
+            info = json.loads(info)
+        except ValueError:
+            return None
+    return info if isinstance(info, dict) else None
+
+
+def _publish_timestamp(info: dict[str, Any]):
+    """群发时刻：优先 publish_info.create_time，贴图类回退 sent_info.time。"""
+    ct = (info.get("publish_info") or {}).get("create_time")
+    if isinstance(ct, int) and ct > 0:
+        return ct
+    # 贴图类（type=9 群发图）publish_info 为空对象，群发时间在 sent_info.time
+    # （R70 实证：2247485215 sent_info.time=1792145145 = 2026-10-16 18:05:45+08，
+    #  与 publish-read.py 实查 create_time 一致；保持 article 侧口径=群发时刻）
+    return (info.get("sent_info") or {}).get("time")
+
+
+def _publish_date(ct) -> str:
+    """epoch 秒 → Asia/Shanghai 的 YYYY-MM-DD；非法值返回空串。"""
+    if not (isinstance(ct, int) and ct > 0):
+        return ""
+    stamp = _dt.datetime.fromtimestamp(ct, _dt.timezone(_dt.timedelta(hours=8)))
+    return stamp.date().isoformat()
+
+
+def _articles_from_info(info: dict[str, Any], ct, pub_date: str) -> list[Any]:
+    """一条群发记录 → 若干 article（已删除的子项跳过）。"""
+    out = []
+    for a in info.get("appmsg_info") or []:
+        if a.get("is_deleted"):
+            continue
+        out.append(
+            {
+                "appmsgid": a.get("appmsgid"),
+                "itemidx": a.get("itemidx", 1),
+                "title": a.get("title", ""),
+                "read_num": a.get("read_num", 0),
+                "share_num": a.get("share_num", 0),
+                "like_num": a.get("like_num", 0),
+                "old_like_num": a.get("old_like_num", 0),
+                "comment_num": a.get("comment_num", 0),
+                "content_url": a.get("content_url", ""),
+                "create_time": ct,
+                "publish_date": pub_date,
+            }
+        )
+    return out
+
+
+def parse_publish_list(raw: str) -> dict[str, Any]:
     """双重 JSON 解码 + 结构断言（T2）；结构变更 → UpstreamError（退出码 4）。
 
     create_time 取自 publish_info.create_time（epoch 秒，Asia/Shanghai 口径），
     用于把「发表记录」行与单篇分析页（需 publish_date 参数）对齐。
     """
-    import datetime as _dt
-
-    try:
-        outer = json.loads(raw)
-    except ValueError:
-        raise UpstreamError("publish_list 外层非 JSON: " + raw[:200])
+    outer = _decode_outer(raw)
     ret = (outer.get("base_resp") or {}).get("ret")
     if ret != 0:
         raise UpstreamError(f"publish_list base_resp.ret={ret}: " + raw[:200])
-    pp = outer.get("publish_page")
-    if isinstance(pp, str):
-        try:
-            pp = json.loads(pp)
-        except ValueError:
-            raise UpstreamError("publish_page 二次解码失败: " + str(pp)[:200])
-    entries = pp.get("publish_list") if isinstance(pp, dict) else None
-    if not isinstance(entries, list):
-        raise UpstreamError("publish_list[] 缺失（结构变更）: " + raw[:200])
+    entries, pp = _publish_page_entries(outer, raw)
     articles = []
-    for e in entries:
-        info = e.get("publish_info")
-        if isinstance(info, str):
-            try:
-                info = json.loads(info)
-            except ValueError:
-                continue  # 单条坏行不炸整批（journal 里可见）
-        if not isinstance(info, dict):
+    for entry in entries:
+        info = _entry_publish_info(entry)
+        if info is None:
             continue
-        ct = (info.get("publish_info") or {}).get("create_time")
-        if not (isinstance(ct, int) and ct > 0):
-            # 贴图类（type=9 群发图）publish_info 为空对象，群发时间在 sent_info.time
-            # （R70 实证：2247485215 sent_info.time=1792145145 = 2026-10-16 18:05:45+08，
-            #  与 publish-read.py 实查 create_time 一致；保持 article 侧口径=群发时刻）
-            ct = (info.get("sent_info") or {}).get("time")
-        pub_date = ""
-        if isinstance(ct, int) and ct > 0:
-            pub_date = (
-                _dt.datetime.fromtimestamp(ct, _dt.timezone(_dt.timedelta(hours=8)))
-                .date()
-                .isoformat()
-            )
-        for a in info.get("appmsg_info") or []:
-            if a.get("is_deleted"):
-                continue
-            articles.append(
-                {
-                    "appmsgid": a.get("appmsgid"),
-                    "itemidx": a.get("itemidx", 1),
-                    "title": a.get("title", ""),
-                    "read_num": a.get("read_num", 0),
-                    "share_num": a.get("share_num", 0),
-                    "like_num": a.get("like_num", 0),
-                    "old_like_num": a.get("old_like_num", 0),
-                    "comment_num": a.get("comment_num", 0),
-                    "content_url": a.get("content_url", ""),
-                    "create_time": ct,
-                    "publish_date": pub_date,
-                }
-            )
+        ct = _publish_timestamp(info)
+        articles.extend(_articles_from_info(info, ct, _publish_date(ct)))
     return {
         "total_publish": pp.get("total_count"),
         "publish_count": pp.get("publish_count"),
@@ -92,7 +122,7 @@ def parse_publish_list(raw: str) -> dict:
     }
 
 
-def fetch(session, count=20) -> dict:
+def fetch(session, count=20) -> dict[str, Any]:
     raw = session.fetch_text(LIST_JS % (count, session.ensure_token()))
     out = parse_publish_list(raw)
     assert out["articles"] or out["total_publish"] == 0, (

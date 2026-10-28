@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -19,7 +19,7 @@ from mpdt import push
 class _FakeSMTP:
     """最小 SMTP 替身：记录 send_message 的调用。"""
 
-    sent: list = []
+    sent: ClassVar[list] = []
     fail: str | None = None
 
     def __init__(self, host: Any, port: Any, context=None, timeout=None) -> Any:

@@ -168,6 +168,37 @@ class TestFindSeries(unittest.TestCase):
         self.assertIsNotNone(hit)
         self.assertEqual(hit[0], "refdate")
 
+    def test_meta_and_deprecated_hits_return_their_own_series_key(self) -> None:
+        """返回的 series_key 必须来自命中的那条，不能是上一段循环的残留。
+
+        实测旧实现 `find_series("refdate","datacube_article")` 返回
+        ('refdate','ad30',<dc7 的 series>) —— CONCEPTS 段跑完后 `skey` 还留着
+        'ad30'，META 段用 `_skey` 接收循环变量却 `return skey`。
+        """
+        hit = metrics.find_series(field="refdate", source="datacube_article")
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit[1], "dc7", "refdate 的 series_key 不该是 CONCEPTS 段的残留值")
+        # 顺带确认这个字段没有第二源（上面的断言才有意义）
+        self.assertIsNone(metrics.find_series(field="refdate", source="article_detail"))
+
+    def test_every_registered_series_is_findable_by_its_own_key(self) -> None:
+        """整个注册表逐条扫：每个 (field, source) 都要回到自己的 series_key。
+
+        这条比单点断言更狠——任何一段（CONCEPTS / META / DEPRECATED）出现
+        "取错循环变量"都会被这里抓到。
+        """
+        checked = 0
+        for name, skey, s in [
+            *metrics.all_series(),
+            *(x for x in metrics._meta_series()),
+            *(x for x in metrics._deprecated_series()),
+        ]:
+            hit = metrics.find_series(field=s["field"], source=s["source"])
+            self.assertIsNotNone(hit, f"{name}.{skey} 查不到")
+            self.assertEqual(hit[1], skey, f"{name}.{skey}: find_series 返回 series_key={hit[1]!r}")
+            checked += 1
+        self.assertGreater(checked, 10)
+
     def test_finds_deprecated_field(self) -> None:
         hit = metrics.find_series(field="old_like_num", source="publish_list")
         self.assertIsNotNone(hit)
@@ -252,7 +283,7 @@ class TestAutoPairs(unittest.TestCase):
                 self.assertIn(
                     cname,
                     concepts_with_pair,
-                    "概念 %s 有 %d series 但未生成配对" % (cname, len(non_dep)),
+                    f"概念 {cname} 有 {len(non_dep)} series 但未生成配对",
                 )
 
     def test_no_pair_for_single_series_concept(self) -> None:
@@ -327,7 +358,7 @@ class TestGeneratedDocs(unittest.TestCase):
     def test_readme_section_grouped_by_concept(self) -> None:
         sec = metrics.readme_section()
         self.assertTrue(sec.startswith("## 指标口径"), sec[:50])
-        for cname, c in metrics.CONCEPTS.items():
+        for c in metrics.CONCEPTS.values():
             self.assertIn("#### {}".format(c["display"]), sec)
             for skey in c["series"]:
                 self.assertIn(f"`{skey}`", sec)

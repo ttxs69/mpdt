@@ -9,10 +9,12 @@ import stat
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from typing import Any
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+
 
 from mpdt import config  # noqa: E402
 from mpdt.errors import ConfigError  # noqa: E402
@@ -73,13 +75,14 @@ class TestLoad(ConfigTmpDir):
         self.assertEqual(cm.exception.exit_code, 2)
 
     def test_corrupt_json_raises_config_error(self) -> None:
-        open(config.CONFIG_PATH, "w").write("{ not json !!!")
+        Path(config.CONFIG_PATH).write_text("{ not json !!!", encoding="utf-8")
         with self.assertRaises(ConfigError):
             config.load()
 
     def test_defaults_merged(self) -> None:
         # 只写部分键 → load 合并 DEFAULTS（chrome_cdp / request_interval 补齐）
-        json.dump({"fingerprint": "fp2"}, open(config.CONFIG_PATH, "w"))
+        with open(config.CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump({"fingerprint": "fp2"}, f)
         cfg = config.load()
         self.assertEqual(cfg["fingerprint"], "fp2")
         self.assertEqual(cfg["chrome_cdp"], "http://127.0.0.1:9222")
@@ -87,7 +90,8 @@ class TestLoad(ConfigTmpDir):
         self.assertEqual(cfg["db_path"], config.DEFAULTS["db_path"])
 
     def test_user_value_overrides_default(self) -> None:
-        json.dump({"request_interval": 5.0}, open(config.CONFIG_PATH, "w"))
+        with open(config.CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump({"request_interval": 5.0}, f)
         self.assertEqual(config.load()["request_interval"], 5.0)
 
 

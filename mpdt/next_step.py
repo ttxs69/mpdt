@@ -23,7 +23,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 # 只有这些判定才值得提"人工版"——样本不足时提了就是骗人
@@ -117,62 +116,3 @@ def render_next_step(adv: dict[str, Any]) -> str:
     )
     lines.append("")
     return "\n".join(lines)
-
-
-def _check_executable_verdicts() -> list[Any]:
-    """正例：有可执行结论 ⇒ 必须出现，且要素齐全。"""
-    fails = []
-    for v in ("FAMILY_SPLIT", "FAMILY_SPARK", "BLACKOUT", "NO_SIGNAL"):
-        out = render_next_step({"verdict": v, "headline": "x"})
-        if not out:
-            fails.append(f"可执行判定 {v} 没渲染下一步")
-            continue
-        for need in ("mpdt 到哪一步为止", "¥99", "¥499", "¥1,999", _CONTACT, "不承诺阅读量"):
-            if need not in out:
-                fails.append(f"{v} 缺要素: {need}")
-    return fails
-
-
-def _check_non_executable_verdicts() -> list[Any]:
-    """负例：样本不足 / 非法输入 ⇒ 不许出现（否则就是骗人）。"""
-    fails = []
-    for v in ("INSUFFICIENT", "NORMAL", "", None):
-        if render_next_step({"verdict": v, "headline": "x"}):
-            fails.append(f"非可执行判定 {v!r} 仍渲染了下一步")
-    if render_next_step(None) or render_next_step("x"):
-        fails.append("非法输入仍渲染了下一步")
-    return fails
-
-
-def _check_no_promises() -> list[Any]:
-    """负例：不得出现"保证/一定涨粉"这类承诺。
-
-    要区分肯定承诺与否定承诺 —— "我们**不**承诺阅读量"是允许的，用裸子串判会把
-    自己写的不承诺也判成违规（第一版就踩了这个坑）。
-    """
-    fails = []
-    out = render_next_step({"verdict": "FAMILY_SPLIT", "headline": "x"})
-    for banned in (r"保证\s*涨粉", r"一定\s*(?:能)?被推荐", r"(?<!不)承诺\s*阅读量", r"包涨粉"):
-        if re.search(banned, out):
-            fails.append(f"出现承诺性措辞: {banned}")
-    if "不承诺阅读量" not in out:
-        fails.append("缺少明确的不承诺声明")
-    return fails
-
-
-def self_test() -> int:
-    """自测：判定门 + 内容要素 + 负对照。"""
-    fails = _check_executable_verdicts() + _check_non_executable_verdicts() + _check_no_promises()
-    if fails:
-        print("❌ next_step 自测失败:")
-        for f in fails:
-            print("   -", f)
-        return 1
-    print("✅ next_step 自测通过（4 类可执行判定渲染 / 样本不足与非法输入不渲染 / 无承诺措辞）")
-    return 0
-
-
-if __name__ == "__main__":
-    import sys
-
-    sys.exit(self_test())

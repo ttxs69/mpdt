@@ -18,9 +18,8 @@ import json
 import os
 from typing import Any
 
-from . import advice as advice_mod
 from . import metrics as metrics_mod
-from . import render
+from . import render, shape, store
 
 # ─────────────────────────── 查询（副作用：读库） ───────────────────────────
 
@@ -106,7 +105,7 @@ def collect(con: Any, week_begin: str, week_end: str) -> dict:
         "series_by_source": _series_cache(con),
         "week_keys": _week_article_keys(con, week_begin, week_end),
         "detail_in_week": _detail_in_week(con, week_begin, week_end),
-        "advice_rows": advice_mod.load_rows(con),
+        "advice_rows": shape.to_advice_rows(store.load_advice_source(con)),
     }
 
 

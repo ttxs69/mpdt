@@ -17,7 +17,7 @@ import html as html_mod
 import json
 from email.message import EmailMessage
 from itertools import combinations
-from typing import Any
+from typing import Any, cast
 
 from . import advice as advice_mod
 from . import metrics as metrics_mod
@@ -88,7 +88,7 @@ def inline_html(text: str) -> str:
 def md_table_html(header_line: str, body_lines: list[str]) -> str:
     """| a | b | 形式的表格行 → <table>（首行表头；第二行是 --- 分隔线，调用方已剔除）。"""
 
-    def cells(line):
+    def cells(line: str) -> list[str]:
         parts = [c.strip() for c in line.strip().strip("|").split("|")]
         return parts
 
@@ -227,7 +227,7 @@ def decode_snapshot(stat_date: str, raw: str) -> dict[str, Any]:
     """metrics 仍是 JSON 字符串时解析成 dict，并把抓取日挂成 _stat_date。"""
     d = json.loads(raw)
     d["_stat_date"] = stat_date
-    return d
+    return cast(dict[str, Any], d)
 
 
 def snapshot_in_week(
@@ -252,7 +252,7 @@ def week_snapshots(rows: list[Any], week_begin: str, week_end: str) -> list[Any]
     return kept
 
 
-def is_fake_perfect(entry: tuple) -> bool:
+def is_fake_perfect(entry: tuple[Any, ...]) -> bool:
     """分母为 0 却被报成 100% 完读率的行。
 
     datacube：finish_read_rate>=1 且 total_read_finish==0 ⇒ 分母为 0。
@@ -299,7 +299,7 @@ def completion_candidates(arts: list[Any], dc_arts: list[Any]) -> dict[str, Any]
     同一篇文章会连续多天各一行（实测「rea 屠榜 GitHub」在 10-19/10-20/10-21 各一行），
     客户看到同标题重复出现会立刻质疑。
     """
-    latest_by_art = {}
+    latest_by_art: dict[Any, Any] = {}
     for stat_date, title, m in arts:
         prev = latest_by_art.get(title)
         if prev is None or stat_date > prev[0]:
@@ -309,7 +309,7 @@ def completion_candidates(arts: list[Any], dc_arts: list[Any]) -> dict[str, Any]
         fr = m.get("finished_read_pv_ratio")
         if fr is not None:
             by_key[(title, stat_date)] = (fr, m, "ad30")
-    dc_latest = {}
+    dc_latest: dict[Any, Any] = {}
     dc_by_art = {}
     for stat_date, title, m in dc_arts:
         if title not in dc_latest or stat_date > dc_latest[title][0]:
@@ -368,7 +368,7 @@ def ratio_diff_note(series: list[Any], by_source: dict[str, Any], key: tuple[str
 
 def wide_row(
     key: tuple[str, int], series: list[Any], by_source: dict[str, Any], is_ratio: bool
-) -> tuple[list | None, bool]:
+) -> tuple[list[Any] | None, bool]:
     """宽表的一行 → (row | None, 扫描中是否见过非零值)。
 
     saw_nonzero 是**扫描语义**：先见到非零、再因缺字段被丢弃的行也算见过。
@@ -409,9 +409,9 @@ def has_any_intersect_rows(
     return False
 
 
-def folded_concept_lines(folded: list[dict]) -> list[Any]:
+def folded_concept_lines(folded: list[dict[str, Any]]) -> list[Any]:
     """把「为什么折叠」按原因分组，每条一行。没有折叠就没有输出。"""
-    out: list = []
+    out: list[Any] = []
     if not folded:
         return out
     missing_src = [x for x in folded if not x["has_data"] and x["missing_sources"]]
@@ -429,7 +429,7 @@ def folded_concept_lines(folded: list[dict]) -> list[Any]:
     ]
     zero = [x for x in folded if x["has_data"] and x["all_zero"]]
     if missing_src:
-        by_missing: dict = {}
+        by_missing: dict[str, Any] = {}
         # 循环变量不能叫 b —— b 是周界（week begin），for 循环会覆盖它。
         # 旧代码用 b 且此后没再读 b，所以一直没炸；周筛延伸到本节之后才暴露。
         for blk in missing_src:
@@ -441,7 +441,7 @@ def folded_concept_lines(folded: list[dict]) -> list[Any]:
         out.append("")
         out.append("> **本周无可对照数据的概念**：{}。".format("；".join(parts)))
     if missing_field:
-        by_mf: dict = {}
+        by_mf: dict[str, Any] = {}
         for blk in missing_field:
             key = "+".join(sorted(blk["missing_fields"]))
             by_mf.setdefault(key, []).append(blk["display"])
@@ -474,7 +474,7 @@ def channel_pct(m: dict[str, Any], scene: int) -> object:
     return None
 
 
-def channel_row(title: str, m: dict[str, Any]) -> list | None:
+def channel_row(title: str, m: dict[str, Any]) -> list[Any] | None:
     """单篇渠道构成的一行；read_uv=0 的「无信号」行返回 None（跳过）。"""
     ruv = m.get("read_uv")
     if not isinstance(ruv, (int, float)) or ruv == 0:
@@ -493,7 +493,7 @@ def channel_row(title: str, m: dict[str, Any]) -> list | None:
 
 
 def wide_rows_for_concept(
-    series_by_source: dict[str, Any], cname: str, week_keys: set | None = None
+    series_by_source: dict[str, Any], cname: str, week_keys: set[Any] | None = None
 ) -> dict[str, Any]:
     """某概念一张宽表 → {header, rows, has_data, all_zero, missing_sources, ...}。
 
@@ -504,7 +504,7 @@ def wide_rows_for_concept(
     `series_by_source`：{source: {(appmsgid, itemidx): (stat_date, title, metrics)}}，
     由壳（report.py）一次查库备好 —— 本函数不碰数据库。
     """
-    c = metrics_mod.CONCEPTS[cname]
+    c: dict[str, Any] = metrics_mod.CONCEPTS[cname]
     series = [(k, s) for k, s in c["series"].items() if not s.get("deprecated")]
     if not series:
         return {
@@ -564,8 +564,8 @@ def wide_rows_for_concept(
 
 
 def cross_source_table(
-    series_by_source: dict[str, Any], concept: str | None = None, week_keys: set | None = None
-) -> list[dict]:
+    series_by_source: dict[str, Any], concept: str | None = None, week_keys: set[Any] | None = None
+) -> list[dict[str, Any]]:
     """跨 series 对照（宽表）：每概念一张宽表。
 
     返回 list of {concept, display, header, rows, note, has_data, all_zero,
@@ -574,7 +574,8 @@ def cross_source_table(
     concept 过滤：concept 与 display 都接受。
     """
     out = []
-    for cname, c in metrics_mod.CONCEPTS.items():
+    all_concepts: dict[str, dict[str, Any]] = metrics_mod.CONCEPTS
+    for cname, c in all_concepts.items():
         non_dep = [(k, s) for k, s in c["series"].items() if not s.get("deprecated")]
         if len(non_dep) < 2:
             continue  # 单 series 概念不生成跨 series 对照
@@ -653,13 +654,13 @@ def channel_detail_lines(det: list[Any]) -> list[Any]:
     return out
 
 
-def guidance_lines(adv_rows: list[Any]) -> tuple[list, dict]:
+def guidance_lines(adv_rows: list[Any]) -> tuple[list[Any], dict[str, Any]]:
     """「本周该做什么」判断层 + 工具边界（纯）：advice 行数据进，周报小节出。
 
     R240：只给数字不给判断 = 把客户自己的活儿还给他。判断用 mpdt 自己抓的
     channel_breakdown（推荐渠道绝对阅读人数），不需要客户导出任何东西。
     """
-    out: list = []
+    out: list[Any] = []
     try:
         adv = advice_mod.advise(adv_rows)
         out.append(advice_mod.render(adv))
@@ -688,7 +689,7 @@ def guidance_lines(adv_rows: list[Any]) -> tuple[list, dict]:
 
 def build_report(
     iso_week: str, week_begin: str, week_end: str, data: dict[str, Any]
-) -> tuple[str, dict]:
+) -> tuple[str, dict[str, Any]]:
     """周报正文 + 摘要 —— 纯函数：不进数据库、不写文件、不打印。
 
     `data` 是壳查出来的原始行（见 report.collect），这里做完所有计算与排版。
@@ -803,3 +804,73 @@ def compose_report_email(
     if html_text:
         msg.add_alternative(html_text, subtype="html")
     return msg
+
+
+def human_bytes(n: int) -> str:
+    """字节数 → 人读（KB/MB）。数据库体积这种数字，人只看量级。"""
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    return f"{n / 1048576:.2f} MB"
+
+
+def status_lines(
+    db_path: str,
+    db_exists: bool,
+    size_h: str,
+    rows_by_source: dict[str, Any],
+    latest: str | None,
+    db_bytes: int,
+) -> list[str]:
+    """`mpdt status` 的人读正文（纯）：不查库，只把已知事实排成行。"""
+    lines = [f"数据库：{db_path}" + ("" if db_exists else "（尚不存在，首次 fetch 时创建）")]
+    if not db_exists:
+        return lines
+    for src, n in rows_by_source.items():
+        lines.append(f"  {src:<18} {n} 行")
+    lines.append(f"  最新快照日：{latest or '（空库）'}")
+    lines.append(f"  库体积：{size_h}（{db_bytes} 字节）")
+    return lines
+
+
+def status_summary(db_path: str, total_rows: int, size_h: str) -> str:
+    return f"库状态：{db_path}（{total_rows} 行，{size_h}）"
+
+
+def export_message(
+    fmt: str, out: str, rows: int, source: str, with_meta: bool
+) -> tuple[str, dict[str, Any]]:
+    """导出一行的结论文案 + 元数据（纯）：csv 与 json 的措辞不同，别在壳里 if。"""
+    if fmt == "json":
+        msg = f"JSON 导出：{out}（{rows} 行，source={source}）"
+        meta = {"out": out, "rows": rows, "source": source, "format": "json"}
+        if with_meta:
+            msg += "（口径元数据：内嵌 metrics_meta）"
+            meta["metrics_meta"] = "embedded"
+        return msg, meta
+    msg = f"CSV 导出：{out}（{rows} 行，source={source}）"
+    meta = {"out": out, "rows": rows, "source": source, "format": "csv"}
+    if with_meta:
+        msg += f"（口径元数据：{out}.metrics.csv）"
+        meta["metrics_meta"] = out + ".metrics.csv"
+    return msg, meta
+
+
+def push_success_message(
+    recipient: str, week: str, nbytes: int, verify: dict[str, Any], verify_requested: bool
+) -> str:
+    """推送成功的一行结论（纯）。
+
+    R68：SMTP 接受 ≠ 送达。没回查就明说"未验证"，别让人读成"客户收到了"。
+    """
+    msg = f"已推送：{recipient} · {week}（{nbytes} 字节，HTML 内联）"
+    if verify.get("delivered") is True:
+        msg += "；已回查确认送达"
+    elif verify.get("delivered") is None and not verify_requested:
+        msg += "（SMTP 已接受，未验证收件方收到）"
+    return msg
+
+
+def push_undelivered_message(recipient: str, error: str | None) -> str:
+    return (
+        f"⚠ SMTP 接受但**未验证送达**：{recipient}（{error}）。请人工确认对方收件箱，勿当成已送达。"
+    )

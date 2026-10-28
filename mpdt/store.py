@@ -178,3 +178,15 @@ def export_csv(con, source: str, out_path: str, with_meta=True) -> int:
             )
             w.writerows(csv_metric_meta(source, columns))
     return len(rows)
+
+
+def load_advice_source(con) -> list:
+    """诊断层要的原始快照行（按 stat_date 升序）—— 只查询，不做整形。
+
+    整形在 shape.to_advice_rows（纯）：同一条规则既服务周报也服务 CLI，
+    不该长在 SQL 旁边。
+    """
+    return con.execute(
+        "SELECT stat_date, title, metrics, appmsgid, itemidx FROM snapshots "
+        "WHERE source='article_detail' ORDER BY stat_date"
+    ).fetchall()

@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from . import __version__, config, push, report, shape, store
+from . import __version__, config, push, render, report, shape, store
 from . import metrics as metrics_mod
 from .errors import MpdtError, UpstreamError
 
@@ -101,6 +101,36 @@ def cmd_init(args):
     )
 
 
+def _ingest_publish_list(r, con, articles: list, stat_date: str) -> None:
+    """发表列表入库（壳）：R101 的 create_time/publish_date/send_hour 随行入库。"""
+    for i, a in enumerate(articles, 1):
+        r.progress(i, len(articles), f"入库 {a['title'][:24]}")
+        store.upsert(
+            con,
+            "publish_list",
+            stat_date,
+            a["appmsgid"],
+            a["itemidx"],
+            a["title"],
+            shape.publish_list_metrics(a),
+        )
+
+
+def _ingest_datacube(r, con, rows: list, stat_date: str) -> None:
+    """datacube 文章级数据入库（壳）。"""
+    for i, row in enumerate(rows, 1):
+        r.progress(i, len(rows), f"入库 {row.get('title', '')[:24]}")
+        store.upsert(
+            con,
+            "datacube_article",
+            stat_date,
+            row.get("appmsgid"),
+            row.get("itemidx", 1),
+            row.get("title", ""),
+            shape.datacube_metrics(row),
+        )
+
+
 def cmd_fetch(args):
     r = RES[0]
     cfg = config.load()
@@ -110,70 +140,17 @@ def cmd_fetch(args):
     s = Session(cfg)
     con = store.connect(cfg["db_path"])
     today = today_shanghai()
-    end = today - dt.timedelta(days=1)  # T+1：昨天是最新可得日
-    begin = today - dt.timedelta(days=args.backfill) if args.backfill else end
-    if args.from_date:
-        begin = dt.date.fromisoformat(args.from_date)
-    if args.to_date:
-        end = dt.date.fromisoformat(args.to_date)
+    begin, end = shape.fetch_window(today, args.backfill, args.from_date, args.to_date)
     stat_date = today.isoformat()  # 快照行=拉取时点，refdate 才是文章口径日
     n_total = 0
     r.say(f"拉取发表列表（count={args.count}）…")
     pl = publish_list.fetch(s, count=args.count)
-    for i, a in enumerate(pl["articles"], 1):
-        r.progress(i, len(pl["articles"]), f"入库 {a['title'][:24]}")
-        # R101：create_time/publish_date/send_hour 元数据随行入库（C20 publish_window
-        # 消费链的 L1 缺口——解析层早有、入库曾丢弃）。send_hour=群发时刻北京时间
-        # HH:MM；上游缺 create_time 时三键均存 null，不虚构。
-        ct = a.get("create_time")
-        send_hour = None
-        if isinstance(ct, int) and ct > 0:
-            send_hour = dt.datetime.fromtimestamp(ct, dt.timezone(dt.timedelta(hours=8))).strftime(
-                "%H:%M"
-            )
-        store.upsert(
-            con,
-            "publish_list",
-            stat_date,
-            a["appmsgid"],
-            a["itemidx"],
-            a["title"],
-            {
-                **{
-                    k: a.get(k)
-                    for k in ("read_num", "share_num", "like_num", "old_like_num", "comment_num")
-                },
-                "create_time": ct if isinstance(ct, int) and ct > 0 else None,
-                "publish_date": a.get("publish_date") or None,
-                "send_hour": send_hour,
-            },
-        )
+    _ingest_publish_list(r, con, pl["articles"], stat_date)
     n_total += len(pl["articles"])
     store.log_run(con, "fetch:publish_list", True, f"{len(pl['articles'])} articles")
     r.say(f"拉取 datacube（{begin} ~ {end}，T+1 口径）…")
     dc = datacube.fetch(s, begin.strftime("%Y%m%d"), end.strftime("%Y%m%d"))
-    for i, r2 in enumerate(dc, 1):
-        r.progress(i, len(dc), f"入库 {r2.get('title', '')[:24]}")
-        store.upsert(
-            con,
-            "datacube_article",
-            stat_date,
-            r2.get("appmsgid"),
-            r2.get("itemidx", 1),
-            r2.get("title", ""),
-            {
-                k: r2.get(k)
-                for k in (
-                    "refdate",
-                    "finish_read_rate",
-                    "read_rate",
-                    "total_pv",
-                    "total_read_finish",
-                    "total_share",
-                    "send_succ",
-                )
-            },
-        )
+    _ingest_datacube(r, con, dc, stat_date)
     n_total += len(dc)
     store.log_run(con, "fetch:datacube", True, f"{len(dc)} rows {begin}~{end}")
     con.commit()
@@ -350,40 +327,41 @@ def cmd_push(args):
 
     # R239：SMTP 返回成功 ≠ 收件方收到（实测发给不存在的 example.com 也返回成功）。
     # 默认用发件箱 IMAP 回查验证；只有自己的收件箱能查（外部邮箱查不了）。
-    verify = {"delivered": None, "note": "未验证（外部收件箱无法回查）"}
-    if args.verify:
-        # 凭据可能在 ~/.hermes/.env 而不在 os.environ —— 用 push 的加载器
-        env = push._load_env()
-        v = push.verify_delivery(
-            args.to,
-            subject_contains=args.subject or week,
-            imap_host=env.get("EMAIL_IMAP_HOST", ""),
-            imap_port=int(env.get("EMAIL_IMAP_PORT", "993")),
-            imap_user=env.get("EMAIL_ADDRESS", ""),
-            imap_password=env.get("EMAIL_PASSWORD", ""),
+    verify = _verify_after_send(args, week)
+    if verify.get("delivered") is False:
+        return r.result(
+            render.push_undelivered_message(args.to, verify.get("error")),
+            {
+                "ok": False,
+                "error": verify.get("error"),
+                "smtp_accepted": True,
+                "recipient": args.to,
+                "week": week,
+                **res,
+            },
+            # R68：未验证送达必须让 exit code 非 0 —— 否则 cron 把"发出去但没送到"记成成功。
+            ok=False,
         )
-        verify = v
-        if v.get("delivered") is False:
-            return r.result(
-                f"⚠ SMTP 接受但**未验证送达**：{args.to}（{v.get('error')}）。"
-                f"请人工确认对方收件箱，勿当成已送达。",
-                {
-                    "ok": False,
-                    "error": v.get("error"),
-                    "smtp_accepted": True,
-                    "recipient": args.to,
-                    "week": week,
-                    **res,
-                },
-                # R68：未验证送达必须让 exit code 非 0 —— 否则 cron 把"发出去但没送到"记成成功。
-                ok=False,
-            )
-    ok_msg = f"已推送：{res['recipient']} · {week}（{res['bytes']} 字节，HTML 内联）"
-    if verify.get("delivered") is True:
-        ok_msg += "；已回查确认送达"
-    elif verify.get("delivered") is None and not args.verify:
-        ok_msg += "（SMTP 已接受，未验证收件方收到）"
-    return r.result(ok_msg, {**res, "verify": verify})
+    return r.result(
+        render.push_success_message(res["recipient"], week, res["bytes"], verify, args.verify),
+        {**res, "verify": verify},
+    )
+
+
+def _verify_after_send(args, week) -> dict:
+    """推送后的送达回查（壳）：--verify 才查，查不到就说"未验证"，不编。"""
+    if not args.verify:
+        return {"delivered": None, "note": "未验证（外部收件箱无法回查）"}
+    # 凭据可能在 ~/.hermes/.env 而不在 os.environ —— 用 push 的加载器
+    env = push._load_env()
+    return push.verify_delivery(
+        args.to,
+        subject_contains=args.subject or week,
+        imap_host=env.get("EMAIL_IMAP_HOST", ""),
+        imap_port=int(env.get("EMAIL_IMAP_PORT", "993")),
+        imap_user=env.get("EMAIL_ADDRESS", ""),
+        imap_password=env.get("EMAIL_PASSWORD", ""),
+    )
 
 
 # ---- doctor / status：一站式体检与状态查询（UX 打磨，全部只读） ----
@@ -524,14 +502,7 @@ def _doctor_data_checks(cfg) -> list[Any]:
             }
         )
         return items
-    items.append(
-        {
-            "name": "数据库文件",
-            "status": "ok",
-            "detail": f"{db_path}（{st['db_bytes']} 字节）",
-            "rows_by_source": st["rows_by_source"],
-        }
-    )
+    items.append(_data_file_item(db_path, st))
     total_rows = sum(st["rows_by_source"].values())
     if total_rows == 0:
         items.append(
@@ -542,6 +513,21 @@ def _doctor_data_checks(cfg) -> list[Any]:
             }
         )
         return items
+    items.append(_data_fresh_item(st, total_rows))
+    return items
+
+
+def _data_file_item(db_path: str, st: dict) -> dict:
+    return {
+        "name": "数据库文件",
+        "status": "ok",
+        "detail": f"{db_path}（{st['db_bytes']} 字节）",
+        "rows_by_source": st["rows_by_source"],
+    }
+
+
+def _data_fresh_item(st: dict, total_rows: int) -> dict:
+    """快照新鲜度（纯判断 + 文案）：7 天内算新鲜。"""
     latest = st["latest_snapshot"]
     days_ago = None
     if latest:
@@ -551,16 +537,13 @@ def _doctor_data_checks(cfg) -> list[Any]:
     detail = f"共 {total_rows} 行，最近快照日 {latest}"
     detail += f"（{days_ago} 天前）" if days_ago is not None else ""
     detail += "" if fresh else " → 建议运行 mpdt fetch 更新"
-    items.append(
-        {
-            "name": "快照数据",
-            "status": "ok" if fresh else "warn",
-            "detail": detail,
-            "latest_snapshot": latest,
-            "days_ago": days_ago,
-        }
-    )
-    return items
+    return {
+        "name": "快照数据",
+        "status": "ok" if fresh else "warn",
+        "detail": detail,
+        "latest_snapshot": latest,
+        "days_ago": days_ago,
+    }
 
 
 def cmd_doctor(args):
@@ -607,9 +590,7 @@ def cmd_status(args):
             db_path = config.DEFAULTS["db_path"]  # 解析失败→回退默认路径并照常汇报
     st = _db_readonly_stats(db_path)
     db_bytes = st["db_bytes"] or 0
-    size_h = (
-        f"{db_bytes / 1024:.1f} KB" if db_bytes < 1024 * 1024 else f"{db_bytes / 1048576:.2f} MB"
-    )
+    size_h = render.human_bytes(db_bytes)
     data = {
         "db_path": db_path,
         "db_exists": st["exists"],
@@ -619,13 +600,13 @@ def cmd_status(args):
         "latest_snapshot": st["latest_snapshot"],
     }
     if not JSON_FLAG[0]:
-        print(f"数据库：{db_path}" + ("" if st["exists"] else "（尚不存在，首次 fetch 时创建）"))
-        if st["exists"]:
-            for src, n in st["rows_by_source"].items():
-                print(f"  {src:<18} {n} 行")
-            print(f"  最新快照日：{st['latest_snapshot'] or '（空库）'}")
-            print(f"  库体积：{size_h}（{db_bytes} 字节）")
-    return r.result(f"库状态：{db_path}（{sum(st['rows_by_source'].values())} 行，{size_h}）", data)
+        for line in render.status_lines(
+            db_path, st["exists"], size_h, st["rows_by_source"], st["latest_snapshot"], db_bytes
+        ):
+            print(line)
+    return r.result(
+        render.status_summary(db_path, sum(st["rows_by_source"].values()), size_h), data
+    )
 
 
 def _print_concepts(concepts: list[Any]) -> None:
@@ -728,69 +709,16 @@ def cmd_export(args):
     r = RES[0]
     cfg = config.load()
     con = store.connect(cfg["db_path"])
+    with_meta = not args.no_meta
     if args.format == "json":
-        n = store.export_json(con, args.source, args.out, with_meta=not args.no_meta)
-        meta = {"out": args.out, "rows": n, "source": args.source, "format": "json"}
-        msg = f"JSON 导出：{args.out}（{n} 行，source={args.source}）"
-        if not args.no_meta:
-            msg += "（口径元数据：内嵌 metrics_meta）"
-            meta["metrics_meta"] = "embedded"
+        n = store.export_json(con, args.source, args.out, with_meta=with_meta)
     else:
-        n = store.export_csv(con, args.source, args.out, with_meta=not args.no_meta)
-        meta = {"out": args.out, "rows": n, "source": args.source, "format": "csv"}
-        msg = f"CSV 导出：{args.out}（{n} 行，source={args.source}）"
-        if not args.no_meta:
-            msg += f"（口径元数据：{args.out}.metrics.csv）"
-            meta["metrics_meta"] = args.out + ".metrics.csv"
+        n = store.export_csv(con, args.source, args.out, with_meta=with_meta)
+    msg, meta = render.export_message(args.format, args.out, n, args.source, with_meta)
     return r.result(msg, meta)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """命令行定义（纯）：只构造 parser，不解析、不读环境、不打印。
-
-    拆出来的理由：解析规则是可测的（给定 argv → 得到什么 Namespace），
-    而 main 只该负责"执行 + 把异常翻译成退出码"。
-    """
-    p = argparse.ArgumentParser(
-        prog="mpdt",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="公众号运营数据自动化工具（本地）：复用本机已登录 Chrome 的登录态，\n"
-        "把发表列表 / datacube 文章分析 / 单篇渠道页快照进本地 SQLite，\n"
-        "再生成周报与导出。数据只存本机。",
-        epilog="三步快速上手：\n"
-        "  1. mpdt init                  生成本机配置 ~/.mpdt/config.json\n"
-        "  2. mpdt fetch                 快照数据进本地 SQLite（需 Chrome 已启动并登录 mp.weixin.qq.com）\n"
-        "  3. mpdt report                生成本周周报（Markdown + HTML）\n"
-        "\n"
-        "常用补充命令：\n"
-        "  mpdt doctor                   一键体检（只读：配置/Chrome/数据库逐项检查）\n"
-        "  mpdt status                   查看库位置 / 各源行数 / 最新快照日 / 库体积\n"
-        '  mpdt metrics [关键字]         查指标口径（"这个字段是什么口径"）\n'
-        "\n"
-        "退出码：\n"
-        "  0    成功（含空数据——当天数据 T+1 后才可得，空结果不是错误）\n"
-        "  2    配置问题（未 init / 配置损坏）→ 下一步：mpdt init\n"
-        "  3    凭据问题（token 刷新失败）→ 下一步：Chrome 里登录 mp.weixin.qq.com 后重试\n"
-        "  4    上游接口异常（微信端点改版）→ 反馈原始返回片段给开发者\n"
-        "  130  用户中断 Ctrl-C（已入库部分安全，幂等重跑）",
-    )
-    p.add_argument(
-        "--json",
-        action="store_true",
-        help="机器可读 JSON 输出（stdout 仅一行 JSON；过程输出与提示全静默）",
-    )
-    p.add_argument(
-        "--version", action="version", version="%(prog)s " + __version__, help="显示版本号并退出"
-    )
-
-    sub = p.add_subparsers(
-        dest="cmd",
-        required=True,
-        metavar="<子命令>",
-        description="子命令（详细用法：mpdt <子命令> --help）：",
-    )
-
-    # ---- init ----
+def _add_init_parser(sub: Any) -> None:
     pi = sub.add_parser(
         "init",
         help="初始化本机配置（~/.mpdt/config.json，权限 600）",
@@ -805,7 +733,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pi.set_defaults(fn=cmd_init)
 
-    # ---- fetch ----
+
+def _add_fetch_parser(sub: Any) -> None:
     pf = sub.add_parser(
         "fetch",
         help="快照发表列表 + datacube 文章数据进本地库",
@@ -838,7 +767,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pf.set_defaults(fn=cmd_fetch)
 
-    # ---- detail ----
+
+def _add_detail_parser(sub: Any) -> None:
     pd = sub.add_parser(
         "detail",
         help="抓单篇渠道页（完读率 + 渠道来源构成，30 天窗口）",
@@ -875,7 +805,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pd.set_defaults(fn=cmd_detail)
 
-    # ---- report ----
+
+def _add_report_parser(sub: Any) -> None:
     pr = sub.add_parser(
         "report",
         help="生成周报（Markdown + HTML，含跨源口径对照）",
@@ -887,7 +818,8 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--out", metavar="DIR", help="输出目录（默认 ./mpdt-reports）")
     pr.set_defaults(fn=cmd_report)
 
-    # ---- export ----
+
+def _add_export_parser(sub: Any) -> None:
     pp = sub.add_parser("push", help="把周报推送给客户（邮件；HTML 内联，失败显式报错）")
     pp.add_argument("--to", required=True, metavar="EMAIL", help="收件人邮箱")
     pp.add_argument("--week", metavar="ISO周", default=None, help="默认本周")
@@ -936,7 +868,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pe.set_defaults(fn=cmd_export)
 
-    # ---- metrics ----
+
+def _add_metrics_parser(sub: Any) -> None:
     pm = sub.add_parser(
         "metrics",
         help='列出全部指标及口径（查"这个字段是什么口径"）',
@@ -952,7 +885,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pm.set_defaults(fn=cmd_metrics)
 
-    # ---- doctor ----
+
+def _add_doctor_parser(sub: Any) -> None:
     po = sub.add_parser(
         "doctor",
         help="一键体检：配置/Chrome/数据库逐项检查（只读）",
@@ -963,7 +897,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     po.set_defaults(fn=cmd_doctor)
 
-    # ---- status ----
+
+def _add_status_parser(sub: Any) -> None:
     ps = sub.add_parser(
         "status",
         help="本地库状态：位置/各源行数/最新快照日/库体积（只读）",
@@ -972,6 +907,65 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ps.set_defaults(fn=cmd_status)
 
+
+def build_parser() -> argparse.ArgumentParser:
+    """命令行定义（纯）：只构造 parser，不解析、不读环境、不打印。
+
+    拆出来的理由：解析规则是可测的（给定 argv → 得到什么 Namespace），
+    而 main 只该负责"执行 + 把异常翻译成退出码"。
+    每个子命令各自一个 `_add_*_parser`：新增子命令只碰一个函数，不会让
+    这个函数长成 200 行的单体。
+    """
+    p = argparse.ArgumentParser(
+        prog="mpdt",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="公众号运营数据自动化工具（本地）：复用本机已登录 Chrome 的登录态，\n"
+        "把发表列表 / datacube 文章分析 / 单篇渠道页快照进本地 SQLite，\n"
+        "再生成周报与导出。数据只存本机。",
+        epilog="三步快速上手：\n"
+        "  1. mpdt init                  生成本机配置 ~/.mpdt/config.json\n"
+        "  2. mpdt fetch                 快照数据进本地 SQLite（需 Chrome 已启动并登录 mp.weixin.qq.com）\n"
+        "  3. mpdt report                生成本周周报（Markdown + HTML）\n"
+        "\n"
+        "常用补充命令：\n"
+        "  mpdt doctor                   一键体检（只读：配置/Chrome/数据库逐项检查）\n"
+        "  mpdt status                   查看库位置 / 各源行数 / 最新快照日 / 库体积\n"
+        '  mpdt metrics [关键字]         查指标口径（"这个字段是什么口径"）\n'
+        "\n"
+        "退出码：\n"
+        "  0    成功（含空数据——当天数据 T+1 后才可得，空结果不是错误）\n"
+        "  2    配置问题（未 init / 配置损坏）→ 下一步：mpdt init\n"
+        "  3    凭据问题（token 刷新失败）→ 下一步：Chrome 里登录 mp.weixin.qq.com 后重试\n"
+        "  4    上游接口异常（微信端点改版）→ 反馈原始返回片段给开发者\n"
+        "  130  用户中断 Ctrl-C（已入库部分安全，幂等重跑）",
+    )
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="机器可读 JSON 输出（stdout 仅一行 JSON；过程输出与提示全静默）",
+    )
+    p.add_argument(
+        "--version", action="version", version="%(prog)s " + __version__, help="显示版本号并退出"
+    )
+
+    sub = p.add_subparsers(
+        dest="cmd",
+        required=True,
+        metavar="<子命令>",
+        description="子命令（详细用法：mpdt <子命令> --help）：",
+    )
+
+    for add in (
+        _add_init_parser,
+        _add_fetch_parser,
+        _add_detail_parser,
+        _add_report_parser,
+        _add_export_parser,
+        _add_metrics_parser,
+        _add_doctor_parser,
+        _add_status_parser,
+    ):
+        add(sub)
     return p
 
 

@@ -16,7 +16,6 @@ dependencies = [
     "requests",
     "websocket-client",
 ]
-keywords = ["wechat", "weixin", "mp", "official-account", "analytics", "cli"]
 classifiers = [
     "Environment :: Console",
     "Intended Audience :: Developers",

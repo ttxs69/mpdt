@@ -5,7 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)]()
 [![CI](https://github.com/ttxs69/mpdt/actions/workflows/tests.yml/badge.svg)](https://github.com/ttxs69/mpdt/actions/workflows/tests.yml)
-[![Tests](https://img.shields.io/badge/tests-170%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-443%20passing-brightgreen)]()
 [![Dependencies](https://img.shields.io/badge/dependencies-requests%20%2B%20websocket--client-orange)]()
 
 公众号后台（mp.weixin.qq.com）的运营数据散落在三个页面，官方不提供导出，mpdt 把它们自动抓回本机 SQLite，并生成 Markdown 周报：
@@ -15,7 +15,34 @@
 - **单篇渠道页**：逐篇阅读人数、完读率、平均时长、渠道构成（推荐 / 搜一搜 / 公众号消息…，30 天窗口）
 
 
-## 状态：实验性内部工具（不是产品，也没有商业支持）
+## 状态：**已冻结**（2026-10-28）
+
+**不再加功能。** 只修一种问题：我自己的周报跑不起来了。
+
+为什么冻结——不是因为它坏了，恰恰相反，它的工程质量是这一批产物里最好的
+（443 个测试、97.6% 覆盖、ruff/mypy strict 全零、发布产物逐字节校验）。
+问题是**它的差异化全部落在实现质量上，而实现质量不是付费理由**：
+
+- 目标客户（自己号的小编）打开官方后台就能免费看到同样的数据；
+- 愿意为数据掏钱的人，要的是竞品监控和投放决策——那是 SaaS（新榜/西瓜这类）的地盘；
+- 它的三个上游接口（`appmsgpublish` / `datacubequery` / `appmsganalysis`）和
+  [那个 13k star 后停维护的项目](https://github.com/wechat-article/wechat-article-exporter/issues/200)
+  是同一类依赖。区别只在于：那个项目用自己号枚举**别人**的号（2026-07 被官方封），
+  mpdt 只读**自己**后台本来就显示的数据——风险低一档，但不是零。
+
+**tripwire**：这三个接口哪天变了，只修一次；修不动就归档，不留恋。
+
+冻结时的状态快照：
+
+| 项 | 值 |
+|---|---|
+| 测试 | 443（3.10 上 442 + 1 skip） |
+| 覆盖率 | 97.57%（门限 96） |
+| ruff / mypy(strict) | 0 / 0 |
+| 架构守卫 | 5 个纯模块零副作用，壳函数 ≤30 语句（`tests/test_purity.py`） |
+| 发布路径 | `./scripts/release.sh --dry-run` 全绿（构建 + twine + 产物校验），**未发布** |
+
+## 免责：实验性内部工具（不是产品，也没有商业支持）
 
 **这个仓库是个人自用的实验性工具，不是产品，也没有付费版、SLA 或商业支持。**
 - 它由一个人维护，只保证「Python 3.10+ 能跑」；issue 可能长时间无人回复。

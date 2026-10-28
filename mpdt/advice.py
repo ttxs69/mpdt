@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import statistics
+from typing import Any
 
 from . import analysis
 
@@ -34,7 +35,7 @@ BLACKOUT_MIN_DAYS = 2
 HIT_REC = analysis.HIT_REC  # 唯一常量源：analysis.py（R241）
 
 
-def detect_blackout(rows: list) -> dict:
+def detect_blackout(rows: list[Any]) -> dict[str, Any]:
     """推荐断供窗：逐日取「当日推荐最大值」，连续 ≥2 天都 < 3 → 一个断供窗。
 
     与 diagnose.py 同逻辑，但在本模块内独立实现，避免跨目录 import 依赖
@@ -64,7 +65,7 @@ def detect_blackout(rows: list) -> dict:
     }
 
 
-def advise(rows: list, recent_days: int = 3) -> dict:
+def advise(rows: list[Any], recent_days: int = 3) -> dict[str, Any]:
     """产出「本周该做什么」。
 
     返回 {verdict, headline, actions[], evidence{}, caveats[]}。
@@ -190,7 +191,7 @@ def advise(rows: list, recent_days: int = 3) -> dict:
     }
 
 
-def render(adv: dict) -> str:
+def render(adv: dict[str, Any]) -> str:
     """把判断渲染成周报里的 Markdown 节。"""
     lines = ["## 本周该做什么", ""]
     verdict_cn = {

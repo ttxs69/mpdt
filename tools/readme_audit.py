@@ -20,9 +20,10 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 
-def fetch_pypi_desc(package, timeout=15):
+def fetch_pypi_desc(package: Any, timeout: Any = 15) -> Any:
     url = f"https://pypi.org/pypi/{package}/json"
     req = urllib.request.Request(url, headers={"User-Agent": "mpdt-readme-audit/1.0"})
     try:
@@ -36,7 +37,7 @@ def fetch_pypi_desc(package, timeout=15):
     return desc
 
 
-def main():
+def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--package", default="mpdt")
     p.add_argument("--repo", default=".", help="Repo root containing README.md")

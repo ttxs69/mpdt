@@ -29,7 +29,7 @@ from mpdt.errors import AuthError, UpstreamError  # noqa: E402
 class _StubSession:
     """替身 Session：仅承载 cfg，验证 Session(cfg) 被构造。"""
 
-    def __init__(self, cfg: Any) -> Any:
+    def __init__(self, cfg: Any) -> None:
         self.cfg = cfg
 
 
@@ -78,7 +78,9 @@ class CliBase(unittest.TestCase):
         sys.stdout, sys.stderr = self._stdout, self._stderr
         self._tmp.cleanup()
 
-    def run_cli(self, argv, patch_fetch=None, patch_detail=None) -> tuple[int, str, str]:
+    def run_cli(
+        self, argv: Any, patch_fetch: Any = None, patch_detail: Any = None
+    ) -> tuple[int, str, str]:
         """跑 cli.main(argv)，返回 (rc, stdout, stderr)。today 固定为 2026-10-17。"""
         import contextlib
 
@@ -100,7 +102,7 @@ class CliBase(unittest.TestCase):
         return rc, buf_out.getvalue(), buf_err.getvalue()
 
     @staticmethod
-    def _extra_patches(patch_fetch, patch_detail) -> list[Any]:
+    def _extra_patches(patch_fetch: Any, patch_detail: Any) -> list[Any]:
         out = []
         if patch_fetch:
             out.append(("publish_list", patch_fetch[0]))
@@ -131,7 +133,7 @@ class CliBase(unittest.TestCase):
         con.close()
 
     @staticmethod
-    def pl_article(**kw) -> Any:
+    def pl_article(**kw: Any) -> Any:
         a = {
             "appmsgid": "mA",
             "itemidx": 1,

@@ -22,13 +22,13 @@ class _FakeSMTP:
     sent: ClassVar[list] = []
     fail: str | None = None
 
-    def __init__(self, host: Any, port: Any, context=None, timeout=None) -> Any:
+    def __init__(self, host: Any, port: Any, context: Any = None, timeout: Any = None) -> None:
         self.host, self.port = host, port
 
     def __enter__(self) -> Any:
         return self
 
-    def __exit__(self, *a) -> Any:
+    def __exit__(self, *a: Any) -> Any:
         return False
 
     def login(self, u: Any, p: Any) -> Any:
@@ -188,7 +188,7 @@ class TestRecipientGate(PushTestBase):
     数据出了手就收不回 —— 必须是机制拦截，不是"我下次记得"。
     """
 
-    def _allow(self, *emails) -> Any:
+    def _allow(self, *emails: Any) -> Any:
         (self.state / "push_allowlist.json").write_text(
             '{{"allow": [{}]}}'.format(", ".join(f'"{e}"' for e in emails)), encoding="utf-8"
         )

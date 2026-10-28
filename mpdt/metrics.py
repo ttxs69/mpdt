@@ -52,7 +52,7 @@ SOURCE_DESC = {
 #   - cross_source_table 宽表（不让它占一列）
 #   - 导出元数据 *.metrics.csv 的元数据命中（仍写「(未登记)」，但导出本身不变）
 #   - to_concepts_view / readme_section / calibration_note
-CONCEPTS = {
+CONCEPTS: dict[str, dict[str, Any]] = {
     "read_completion": {
         "display": "完读率",
         "unit": "比例(0-1)",
@@ -330,7 +330,7 @@ CONCEPTS = {
 #   - 不参与「跨 series 对照」
 #   - 仍被 find_series() / csv_metric_meta() 查询到，CSV 导出元数据继续可用
 # display 字段标注「派生列」「结构列」以便人读。
-META_FIELDS = {
+META_FIELDS: dict[str, dict[str, Any]] = {
     "refdate": {
         "display": "文章口径日",
         "kind": "snapshot",
@@ -411,7 +411,7 @@ META_FIELDS = {
 # ── 旧版字段：保留登记 + 显式标记 deprecated ──────────────────
 # 旧 like_num 字段 `old_like_num`（publish_list 上报），概念上与新 like_num 等价；
 # 标记 deprecated 后：从 auto_pairs / cross_source_table / 导出元数据 / metrics 视图全部排除。
-DEPRECATED = {
+DEPRECATED: dict[str, dict[str, Any]] = {
     "old_like_num": {
         "display": "旧版点赞数",
         "replaced_by": "like_num",
@@ -439,7 +439,7 @@ def concepts() -> dict[str, Any]:
     return CONCEPTS
 
 
-def all_series():
+def all_series() -> Any:
     """展开 CONCEPTS → 平铺 series 元组流（每个 (concept, series_key, series_dict)）。
 
     排除 deprecated（不参与对照/配对）。META_FIELDS 是非指标独立表，不在此流。
@@ -451,21 +451,21 @@ def all_series():
             yield cname, skey, s
 
 
-def _meta_series():
+def _meta_series() -> Any:
     """META_FIELDS 摊平成 (mname, skey, series)。"""
     for mname, m in META_FIELDS.items():
         for skey, s in m["series"].items():
             yield mname, skey, s
 
 
-def _deprecated_series():
+def _deprecated_series() -> Any:
     """DEPRECATED 摊平成 (dname, skey, series)。"""
     for dname, d in DEPRECATED.items():
         for skey, s in d["series"].items():
             yield dname, skey, s
 
 
-def _match_series(entries, field: str | None, source: str | None):
+def _match_series(entries: Any, field: str | None, source: str | None) -> Any:
     """在 (name, skey, series) 序列里找第一个匹配；没有返回 None。"""
     for name, skey, s in entries:
         if field is not None and s["field"] != field:
@@ -476,7 +476,7 @@ def _match_series(entries, field: str | None, source: str | None):
     return None
 
 
-def find_series(field: str | None = None, source: str | None = None):
+def find_series(field: str | None = None, source: str | None = None) -> Any:
     """按 field 查 series（field 在 (source, field) 上唯一）；可同时按 source 限定。
 
     查询顺序：CONCEPTS → META_FIELDS → DEPRECATED。
@@ -493,7 +493,7 @@ def find_series(field: str | None = None, source: str | None = None):
     return None
 
 
-def auto_pairs():
+def auto_pairs() -> Any:
     """易混淆配对：同概念 ≥2 series 即一对；why 由 window/denominator 差异自动生成。
 
     deprecated / META_FIELDS 不参与。返回 tuple of (concept_name, series_a_key,

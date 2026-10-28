@@ -9,6 +9,7 @@ import json
 import re
 import time
 import urllib.request
+from typing import Any
 
 from .errors import AuthError
 
@@ -16,7 +17,7 @@ ANALYSIS_URL = "https://mp.weixin.qq.com/misc/appmsganalysis?action=all&lang=zh_
 
 
 class Session:
-    def __init__(self, cfg):
+    def __init__(self, cfg: dict[str, Any]) -> None:
         self.cfg = cfg
         self.token = cfg.get("token") or ""
         self.fingerprint = cfg.get("fingerprint") or ""
@@ -26,7 +27,7 @@ class Session:
         self._tab_url = ""
 
     # ---- CDP 基础 ----
-    def _connect(self):
+    def _connect(self) -> Any:
         if self._ws is not None:
             return
         import websocket
@@ -48,7 +49,7 @@ class Session:
         self._tab_url = page[0].get("url", "")
         self._cmd("Page.enable")
 
-    def _cmd(self, method, **params):
+    def _cmd(self, method: Any, **params: Any) -> Any:
         self._mid += 1
         self._ws.send(json.dumps({"id": self._mid, "method": method, "params": params}))
         self._ws.settimeout(60)
@@ -57,7 +58,7 @@ class Session:
             if m.get("id") == self._mid:
                 return m
 
-    def _eval(self, js):
+    def _eval(self, js: Any) -> Any:
         r = self._cmd("Runtime.evaluate", expression=js, returnByValue=True, awaitPromise=True)
         return r.get("result", {}).get("result", {}).get("value")
 
@@ -86,7 +87,7 @@ class Session:
         return self.token
 
     # ---- 页内 fetch（登录态 cookie 自动附带）----
-    def fetch_text(self, js) -> str:
+    def fetch_text(self, js: Any) -> str:
         self._connect()
         self.throttle()
         v = self._eval(js)
@@ -94,7 +95,7 @@ class Session:
             raise AuthError("页面内 fetch 无返回（tab 可能已失效，重跑一次）")
         return v
 
-    def throttle(self):
+    def throttle(self) -> Any:
         wait = self.cfg.get("request_interval", 1.0) - (time.time() - self._last_req)
         if wait > 0:
             time.sleep(wait)

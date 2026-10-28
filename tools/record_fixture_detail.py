@@ -20,6 +20,7 @@ import re
 import sys
 import time
 import urllib.request
+from typing import Any
 
 import websocket
 
@@ -33,7 +34,7 @@ DEFAULT_TARGETS = [
 ]
 
 
-def _match_brace(text: str, start: int):
+def _match_brace(text: str, start: int) -> Any:
     """从 text[start] 的 '{' 起，返回配对 '}' 的下标；不配对返回 None。
 
     字符串里的括号和转义不参与配对 —— 微信返回的 JSON 里标题/正文含大量引号与
@@ -62,7 +63,7 @@ def _match_brace(text: str, start: int):
     return None
 
 
-def _json_after(text: str, key: str):
+def _json_after(text: str, key: str) -> Any:
     """取 `key:` 之后第一个平衡括号 JSON 文本（字符串内括号/转义安全）。"""
     i = text.find(key + ":")
     if i < 0:
@@ -74,7 +75,7 @@ def _json_after(text: str, key: str):
     return None if end is None else text[j : end + 1]
 
 
-def extract_cgi_data(html: str):
+def extract_cgi_data(html: str) -> Any:
     """返回 (fixture_text, 解析后 dict)；数据脚本定位用 articleData 做锚（页面另有空 cgiData={}）。"""
     if "articleData" not in html:
         return None, None
@@ -94,7 +95,7 @@ def extract_cgi_data(html: str):
     return f"window.wx.cgiData = {{\n    {body}\n  }};\n", parts
 
 
-def main():
+def main() -> int:
     targets = []
     for a in sys.argv[1:]:
         mid, idx, pub = a.split(":")
@@ -110,7 +111,7 @@ def main():
     )
     mid_n = [0]
 
-    def run_js(js):
+    def run_js(js: Any) -> Any:
         mid_n[0] += 1
         ws.send(
             json.dumps(

@@ -28,7 +28,7 @@ class StoreBase(unittest.TestCase):
         self.con.close()
         self._tmp.cleanup()
 
-    def rows(self, table="snapshots") -> Any:
+    def rows(self, table: Any = "snapshots") -> Any:
         return self.con.execute(f"SELECT * FROM {table}").fetchall()
 
 

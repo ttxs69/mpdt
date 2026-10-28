@@ -12,3 +12,4 @@ mpdt-export.csv
 .mypy_cache/
 .ruff_cache/
 htmlcov/
+.release-venv/

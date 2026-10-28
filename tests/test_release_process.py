@@ -182,6 +182,21 @@ class TestTheWorkflowsArePinned(unittest.TestCase):
                 for key, value in declared.items():
                     self.assertNotIn("*", value, f"{path.name}: wildcard permission {key}")
 
+    def test_a_pinned_action_carries_one_version_comment(self) -> None:
+        """`@sha # v1 # v1` came from a rewrite that appended to an existing
+        comment. Two comments on one line is the visible symptom of a script
+        that edited a line it did not fully understand."""
+        for path in WORKFLOWS.glob("*.yml"):
+            for line in read(path).splitlines():
+                stripped = line.strip()
+                if not stripped.startswith(("uses:", "- uses:")):
+                    continue
+                comments = [part for part in stripped.split("#")[1:]]
+                tags = [c for c in comments if re.match(r"\s*v\d", c)]
+                self.assertLessEqual(
+                    len(tags), 1, f"{path.name}: {stripped} carries {len(tags)} version comments"
+                )
+
 
 class TestTheVersionGateIsWired(unittest.TestCase):
     def setUp(self) -> None:

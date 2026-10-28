@@ -284,7 +284,22 @@ mpdt 给你四个数：推荐命中率、中间带占比、渠道结构、完读
 - [产品需求（PRD）](docs/product-requirements.md)
 - [技术设计](docs/technical-design.md)
 - [冷启动记录](docs/coldstart.md)
+- [发版流程](docs/PUBLISHING.md) · [质量门](QUALITY.md)
 - 答疑：[提 issue](https://github.com/ttxs69/mpdt/issues)
+
+## 开发
+
+```bash
+python -m venv .venv && . .venv/bin/activate
+pip install -e . && pip install -r requirements-dev.txt
+
+./scripts/quality.sh        # 本地与 CI 跑同一个文件：格式 → lint/类型棘轮 → 测试+覆盖率
+./scripts/release.sh --dry-run   # 构建并校验产物，不发版
+```
+
+发版是 `./scripts/release.sh patch`（或 `minor` / `major`），它做安全检查 → 改版本 →
+写 CHANGELOG → 打 tag → push，由 CI 构建并发布到 PyPI。细节见
+[docs/PUBLISHING.md](docs/PUBLISHING.md)。
 
 ## 边界与合规
 

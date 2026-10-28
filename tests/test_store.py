@@ -8,10 +8,12 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from typing import Any
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+
 
 from mpdt import store  # noqa: E402
 
@@ -143,7 +145,7 @@ class TestExportCsv(StoreBase):
         self.con.commit()
         n = store.export_csv(self.con, "datacube_article", csv_path)
         self.assertEqual(n, 2)
-        lines = open(csv_path).read().strip().splitlines()
+        lines = Path(csv_path).read_text(encoding="utf-8").strip().splitlines()
         self.assertEqual(
             lines[0], "stat_date,appmsgid,itemidx,title,finish_read_rate,read_rate,total_pv"
         )
@@ -156,7 +158,9 @@ class TestExportCsv(StoreBase):
     def test_export_empty_source_returns_zero_rows(self) -> None:
         csv_path = self._tmp.name + "/empty.csv"
         self.assertEqual(store.export_csv(self.con, "nothing", csv_path), 0)
-        self.assertEqual(len(open(csv_path).read().strip().splitlines()), 1)  # 仅表头
+        self.assertEqual(
+            len(Path(csv_path).read_text(encoding="utf-8").strip().splitlines()), 1
+        )  # 仅表头
 
 
 class TestExportJson(StoreBase):
@@ -177,7 +181,7 @@ class TestExportJson(StoreBase):
         self.con.commit()
         n = store.export_json(self.con, "datacube_article", out)
         self.assertEqual(n, 2)
-        p = json.loads(open(out, encoding="utf-8").read())
+        p = json.loads(Path(out).read_text(encoding="utf-8"))
         self.assertEqual(p["source"], "datacube_article")
         self.assertEqual(p["row_count"], 2)
         self.assertEqual(
@@ -208,14 +212,14 @@ class TestExportJson(StoreBase):
         store.upsert(self.con, "publish_list", "2026-10-16", "mB", 1, "乙", {"read_num": 9})
         self.con.commit()
         store.export_json(self.con, "publish_list", out, with_meta=False)
-        p = json.loads(open(out, encoding="utf-8").read())
+        p = json.loads(Path(out).read_text(encoding="utf-8"))
         self.assertNotIn("metrics_meta", p)
         self.assertEqual(p["records"][0]["read_num"], 9)
 
     def test_export_json_empty_source(self) -> None:
         out = self._tmp.name + "/empty.json"
         self.assertEqual(store.export_json(self.con, "nothing", out), 0)
-        p = json.loads(open(out, encoding="utf-8").read())
+        p = json.loads(Path(out).read_text(encoding="utf-8"))
         self.assertEqual(p["row_count"], 0)
         self.assertEqual(p["records"], [])
         self.assertEqual(p["metrics_meta"]["rows"], [])  # 空 source 仍带元数据表头
@@ -238,11 +242,11 @@ class TestExportCsvMeta(StoreBase):
         self.assertEqual(n, 1)
         meta_path = csv_path + ".metrics.csv"
         self.assertTrue(os.path.exists(meta_path))
-        lines = open(meta_path).read().strip().splitlines()
+        lines = Path(meta_path).read_text(encoding="utf-8").strip().splitlines()
         self.assertEqual(lines[0], "column,source,window,denominator,unit,cross_source_comparable")
         # 每个指标列一行，口径来自注册表
         self.assertEqual(len(lines), 3)  # 表头 + finish_read_rate + total_pv
-        fr = next(l for l in lines[1:] if l.startswith("finish_read_rate"))
+        fr = next(ln for ln in lines[1:] if ln.startswith("finish_read_rate"))
         self.assertIn("datacube_article", fr)
         self.assertIn("7 天窗口", fr)
         self.assertTrue(fr.endswith(",否"))  # 完读率不可跨源比
@@ -260,10 +264,10 @@ class TestExportCsvMeta(StoreBase):
         )
         self.con.commit()
         store.export_csv(self.con, "article_detail", csv_path)
-        lines = open(csv_path + ".metrics.csv").read().strip().splitlines()
-        new = next(l for l in lines if l.startswith("some_new_upstream_field"))
+        lines = Path(csv_path + ".metrics.csv").read_text(encoding="utf-8").strip().splitlines()
+        new = next(ln for ln in lines if ln.startswith("some_new_upstream_field"))
         self.assertIn("(未登记)", new)
-        known = next(l for l in lines if l.startswith("read_uv"))
+        known = next(ln for ln in lines if ln.startswith("read_uv"))
         self.assertIn("30 天窗口", known)  # 登记键来自注册表口径
 
     def test_no_meta_disables_sidecar(self) -> None:
@@ -278,7 +282,7 @@ class TestExportCsvMeta(StoreBase):
         csv_path = os.path.join(self._tmp.name, "empty2.csv")
         store.export_csv(self.con, "nothing", csv_path)
         self.assertEqual(
-            open(csv_path + ".metrics.csv").read().strip().splitlines(),
+            Path(csv_path + ".metrics.csv").read_text(encoding="utf-8").strip().splitlines(),
             ["column,source,window,denominator,unit,cross_source_comparable"],
         )
 

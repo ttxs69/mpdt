@@ -463,14 +463,14 @@ def find_series(field: str | None = None, source: str | None = None):
             continue
         return cname, skey, s
     for mname, m in META_FIELDS.items():
-        for skey, s in m["series"].items():
+        for _skey, s in m["series"].items():
             if field is not None and s["field"] != field:
                 continue
             if source is not None and s["source"] != source:
                 continue
             return mname, skey, s
     for dname, d in DEPRECATED.items():
-        for skey, s in d["series"].items():
+        for _skey, s in d["series"].items():
             if field is not None and s["field"] != field:
                 continue
             if source is not None and s["source"] != source:
@@ -616,7 +616,7 @@ def readme_section() -> str:
     out.append("| 规范名 | 字段 | 源 | 窗口 | 类型 | 备注 |")
     out.append("|---|---|---|---|---|---|")
     for mname, m in META_FIELDS.items():
-        for skey, s in m["series"].items():
+        for _skey, s in m["series"].items():
             out.append(
                 "| `{}` | `{}` | {} | {} | {} | {} |".format(
                     mname, s["field"], s["source"], s["window"], m["kind"], s.get("note", "")
@@ -631,7 +631,7 @@ def readme_section() -> str:
         "但不参与周报对照、metrics 视图与自动配对。"
     )
     for dname, d in DEPRECATED.items():
-        for skey, s in d["series"].items():
+        for _skey, s in d["series"].items():
             out.append(
                 "- `{}` → `{}`：{}".format(dname, d.get("replaced_by", "?"), s.get("note", ""))
             )

@@ -4,6 +4,7 @@
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -38,7 +39,6 @@ href = (
     .get("result", {})
     .get("value", "")
 )
-import re
 
 mtok = re.search(r"token=(\d+)", href)
 TOKEN = mtok.group(1) if mtok else ""
@@ -46,11 +46,12 @@ print("token from url:", TOKEN[:4] + "..." if TOKEN else "MISSING")
 
 # fingerprint 从已验证工具读取（不硬编码第二份；fixture 落盘时剥离）
 FP = ""
-for line in open(os.path.expanduser("~/moneymaker/tools/mp-datacube.py")):
-    mfp = re.match(r"FINGERPRINT\s*=\s*'([0-9a-f]+)'", line)
-    if mfp:
-        FP = mfp.group(1)
-        break
+with open(os.path.expanduser("~/moneymaker/tools/mp-datacube.py"), encoding="utf-8") as src:
+    for line in src:
+        mfp = re.match(r"FINGERPRINT\s*=\s*'([0-9a-f]+)'", line)
+        if mfp:
+            FP = mfp.group(1)
+            break
 print("fingerprint loaded:", FP[:6] + "..." if FP else "MISSING")
 
 

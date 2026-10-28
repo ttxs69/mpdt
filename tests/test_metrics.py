@@ -327,7 +327,7 @@ class TestGeneratedDocs(unittest.TestCase):
     def test_readme_section_grouped_by_concept(self) -> None:
         sec = metrics.readme_section()
         self.assertTrue(sec.startswith("## 指标口径"), sec[:50])
-        for cname, c in metrics.CONCEPTS.items():
+        for c in metrics.CONCEPTS.values():
             self.assertIn("#### {}".format(c["display"]), sec)
             for skey in c["series"]:
                 self.assertIn(f"`{skey}`", sec)

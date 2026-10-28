@@ -93,10 +93,10 @@ def split_template_vs_topic(titles: list) -> tuple:
     模板关键词：含「一览」「GH Trending」「GitHub / HN」「arxiv」「HF / PH」
     等流水线自动生成的标记即归入模板类。
     """
-    TMPL_KW = ["一览", "GH Trending", "GitHub / HN", "arxiv", "HF / PH", "claude-plugins"]
+    tmpl_kw = ["一览", "GH Trending", "GitHub / HN", "arxiv", "HF / PH", "claude-plugins"]
     templates, topics = [], []
     for t in titles:
-        if any(kw in t["title"] for kw in TMPL_KW):
+        if any(kw in t["title"] for kw in tmpl_kw):
             templates.append(t)
         else:
             topics.append(t)
@@ -105,10 +105,10 @@ def split_template_vs_topic(titles: list) -> tuple:
 
 def diagnose(titles: list, ext_rules: dict) -> dict:
     """主诊断：长度带 + ban_patterns + 英文实体保留 + 数字密度。"""
-    LB = ext_rules["length_band"]
-    BAN = ext_rules["ban_patterns"]
-    ENG = re.compile(r"[a-zA-Z][a-zA-Z0-9\-]+")
-    DIG = re.compile(r"\d+(?:\.\d+)?")
+    band = ext_rules["length_band"]
+    banned = ext_rules["ban_patterns"]
+    eng_re = re.compile(r"[a-zA-Z][a-zA-Z0-9\-]+")
+    dig_re = re.compile(r"\d+(?:\.\d+)?")
 
     templates, topics = split_template_vs_topic(titles)
 
@@ -119,20 +119,20 @@ def diagnose(titles: list, ext_rules: dict) -> dict:
         num_counts = []
         for entry in bucket:
             t = entry["title"]
-            L = title_len_chars(t)
-            if LB[0] > L:
-                out_short.append((L, t))
-            elif LB[1] < L:
-                out_long.append((L, t))
+            length = title_len_chars(t)
+            if band[0] > length:
+                out_short.append((length, t))
+            elif band[1] < length:
+                out_long.append((length, t))
             else:
-                in_band.append((L, t))
-            for bp in BAN:
+                in_band.append((length, t))
+            for bp in banned:
                 if bp in t:
                     ban_hits.append((bp, entry["stat_date"], t))
                     break
-            if ENG.search(t):
+            if eng_re.search(t):
                 eng_keep.append(t)
-            num_counts.append(len(DIG.findall(t)))
+            num_counts.append(len(dig_re.findall(t)))
         total = len(bucket)
         coverage_in = len(eng_keep) / total if total else 0
         num_med = sorted(num_counts)[total // 2] if total else 0
@@ -153,8 +153,8 @@ def diagnose(titles: list, ext_rules: dict) -> dict:
     return {
         "templates": diag_bucket(templates, "模板类（流水线自动生成·豁免）"),
         "topics": diag_bucket(topics, "真·选题类（个人选题·诊断生效）"),
-        "length_band": list(LB),
-        "ban_patterns_count": len(BAN),
+        "length_band": list(band),
+        "ban_patterns_count": len(banned),
     }
 
 
@@ -162,8 +162,10 @@ def render_md(result: dict, days: int) -> str:
     out = []
     out.append(f"# C20 title_diagnostic · 自家号诊断报告（R140 · {days} 天扫描）")
     out.append("")
-    LB = result["length_band"]
-    out.append(f"长度带 = {LB[0]}-{LB[1]} 字 · ban_patterns = {result['ban_patterns_count']} 条")
+    band = result["length_band"]
+    out.append(
+        f"长度带 = {band[0]}-{band[1]} 字 · ban_patterns = {result['ban_patterns_count']} 条"
+    )
     out.append("")
 
     for key in ("templates", "topics"):
@@ -178,13 +180,13 @@ def render_md(result: dict, days: int) -> str:
         )
         out.append(f"- 数字密度中位 = {sec['num_density_median']} 个/标题")
         if sec["length_band_out_short"]:
-            out.append(f"\n### 短标题（<{LB[0]} 字）")
-            for L, t in sec["length_band_out_short"]:
-                out.append(f"- {L} 字 | {t}")
+            out.append(f"\n### 短标题（<{band[0]} 字）")
+            for length, t in sec["length_band_out_short"]:
+                out.append(f"- {length} 字 | {t}")
         if sec["length_band_out_long"]:
-            out.append(f"\n### 长标题（>{LB[1]} 字）")
-            for L, t in sec["length_band_out_long"]:
-                out.append(f"- {L} 字 | {t}")
+            out.append(f"\n### 长标题（>{band[1]} 字）")
+            for length, t in sec["length_band_out_long"]:
+                out.append(f"- {length} 字 | {t}")
         if sec["ban_hits"]:
             out.append(f"\n### ban_patterns 命中（{len(sec['ban_hits'])} 条）")
             for bp, d, t in sec["ban_hits"]:

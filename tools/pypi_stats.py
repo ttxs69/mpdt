@@ -33,9 +33,9 @@ def _fetch_json(url, timeout=15):
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read()
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP {e.code} for {url}: {e.reason}")
+        raise RuntimeError(f"HTTP {e.code} for {url}: {e.reason}") from e
     except urllib.error.URLError as e:
-        raise RuntimeError(f"URL error for {url}: {e.reason}")
+        raise RuntimeError(f"URL error for {url}: {e.reason}") from e
     return json.loads(raw)
 
 

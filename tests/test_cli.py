@@ -235,7 +235,7 @@ class TestExport(CliBase):
         csv_path = os.path.join(self._tmp.name, "x.csv")
         rc, _out, _err = self.run_cli(["export", "--source", "datacube_article", "--out", csv_path])
         self.assertEqual(rc, 0)
-        self.assertEqual(len(open(csv_path).read().strip().splitlines()), 2)
+        self.assertEqual(len(Path(csv_path).read_text(encoding="utf-8").strip().splitlines()), 2)
 
     def test_export_json_payload(self) -> None:
         self.seed_db()
@@ -296,7 +296,7 @@ class TestExport(CliBase):
                 "metrics_meta": "embedded",
             },
         )
-        payload = json.loads(open(out, encoding="utf-8").read())
+        payload = json.loads(Path(out).read_text(encoding="utf-8"))
         self.assertEqual(payload["row_count"], 1)
         self.assertIn("metrics_meta", payload)
         self.assertEqual(payload["columns"][0], "stat_date")
@@ -309,7 +309,7 @@ class TestExport(CliBase):
         )
         self.assertEqual(rc, 0)
         self.assertNotIn("metrics_meta", json.loads(out_s)["data"])
-        payload = json.loads(open(out, encoding="utf-8").read())
+        payload = json.loads(Path(out).read_text(encoding="utf-8"))
         self.assertNotIn("metrics_meta", payload)
 
     def test_export_format_csv_default_unchanged(self) -> None:
@@ -762,7 +762,7 @@ class TestStatus(CliBase):
 class TestProgress(CliBase):
     """fetch/detail TTY 进度行：[第 N/总]，非 TTY 静默、--json 不出。"""
 
-    def test_fetch_progress_shows_N_of_total(self) -> None:
+    def test_fetch_progress_shows_n_of_total(self) -> None:
         pl = _pl_stub([self.pl_article(), self.pl_article(appmsgid="mB")])
         dc = _dc_stub([])
         rc, out, _err = self.run_cli(["fetch"], patch_fetch=(pl, dc))

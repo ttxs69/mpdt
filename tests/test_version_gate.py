@@ -9,6 +9,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from typing import Any
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -97,11 +98,9 @@ class VersionGateTests(unittest.TestCase):
             self.assertIn("pyproject", msg)
             self.assertIn("__init__", msg)
         # 无论成败：两个文件的版本号必须一致（不一致 = gate 的报错会误导）
-        from pathlib import Path as _P
-
-        _repo = _P(REPO)
-        pp = (_repo / "pyproject.toml").read_text(encoding="utf-8")
-        it = (_repo / "mpdt" / "__init__.py").read_text(encoding="utf-8")
+        repo = Path(REPO)
+        pp = (repo / "pyproject.toml").read_text(encoding="utf-8")
+        it = (repo / "mpdt" / "__init__.py").read_text(encoding="utf-8")
         import re as _re
 
         v1 = _re.search(r'version\s*=\s*"([^"]+)"', pp)

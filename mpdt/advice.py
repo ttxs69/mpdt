@@ -53,7 +53,7 @@ def load_rows(con, only_dates=None) -> list:
     ):
         latest[(str(am), int(ix))] = (sd, ti, m)
     rows = []
-    for (am, ix), (sd, ti, m) in latest.items():
+    for (_am, _ix), (_sd, ti, m) in latest.items():
         d = json.loads(m)
         uv = d.get("read_uv")
         if not isinstance(uv, (int, float)):

@@ -30,8 +30,8 @@ def parse_publish_list(raw: str) -> dict:
 
     try:
         outer = json.loads(raw)
-    except ValueError:
-        raise UpstreamError("publish_list 外层非 JSON: " + raw[:200])
+    except ValueError as e:
+        raise UpstreamError("publish_list 外层非 JSON: " + raw[:200]) from e
     ret = (outer.get("base_resp") or {}).get("ret")
     if ret != 0:
         raise UpstreamError(f"publish_list base_resp.ret={ret}: " + raw[:200])
@@ -39,8 +39,8 @@ def parse_publish_list(raw: str) -> dict:
     if isinstance(pp, str):
         try:
             pp = json.loads(pp)
-        except ValueError:
-            raise UpstreamError("publish_page 二次解码失败: " + str(pp)[:200])
+        except ValueError as e:
+            raise UpstreamError("publish_page 二次解码失败: " + str(pp)[:200]) from e
     entries = pp.get("publish_list") if isinstance(pp, dict) else None
     if not isinstance(entries, list):
         raise UpstreamError("publish_list[] 缺失（结构变更）: " + raw[:200])

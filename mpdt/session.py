@@ -37,7 +37,7 @@ class Session:
             raise AuthError(
                 f"无法连接 Chrome CDP（{self.cfg['chrome_cdp']}）：{e}\n"
                 "请先以 --remote-debugging-port=9222 启动 Chrome 并登录 mp.weixin.qq.com"
-            )
+            ) from e
         page = [t for t in tabs if t.get("type") == "page" and "mp.weixin" in t.get("url", "")]
         if not page:
             raise AuthError(

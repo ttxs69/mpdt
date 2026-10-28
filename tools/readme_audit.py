@@ -29,9 +29,9 @@ def fetch_pypi_desc(package, timeout=15):
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.load(r)
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"PyPI HTTP {e.code} for {url}: {e.reason}")
+        raise RuntimeError(f"PyPI HTTP {e.code} for {url}: {e.reason}") from e
     except urllib.error.URLError as e:
-        raise RuntimeError(f"PyPI URL error for {url}: {e.reason}")
+        raise RuntimeError(f"PyPI URL error for {url}: {e.reason}") from e
     desc = data.get("info", {}).get("description")
     return desc
 

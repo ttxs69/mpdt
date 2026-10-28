@@ -164,14 +164,14 @@ def verify_delivery(
             "error": "缺少 IMAP 凭据，无法验证投递",
         }
     try:
-        M = imaplib.IMAP4_SSL(imap_host, imap_port, timeout=timeout_s)
-        M.login(imap_user, imap_password)
-        M.select("INBOX")
-        typ, data = M.search(None, "ALL")
+        imap = imaplib.IMAP4_SSL(imap_host, imap_port, timeout=timeout_s)
+        imap.login(imap_user, imap_password)
+        imap.select("INBOX")
+        _typ, data = imap.search(None, "ALL")
         ids = data[0].split()
         checked = 0
         for i in reversed(ids[-25:]):
-            _typ, d = M.fetch(i, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO)])")
+            _typ, d = imap.fetch(i, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO)])")
             raw = d[0][1]
             if isinstance(raw, str):
                 raw = raw.encode()
@@ -179,9 +179,9 @@ def verify_delivery(
             subj = str(make_header(decode_header(hdr["Subject"] or "")))
             checked += 1
             if subject_contains and subject_contains in subj:
-                M.logout()
+                imap.logout()
                 return {"delivered": True, "subject": subj, "checked": checked}
-        M.logout()
+        imap.logout()
         return {
             "delivered": False,
             "subject": None,

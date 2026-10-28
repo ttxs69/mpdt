@@ -102,8 +102,8 @@ def parse_detail(raw: str) -> dict:
             raise UpstreamError(f"detailpage 结构变更：{key} 缺失: {html[:200]}")
         try:
             parts[key] = json.loads(seg)
-        except ValueError:
-            raise UpstreamError(f"detailpage {key} 非 JSON: {seg[:200]}")
+        except ValueError as e:
+            raise UpstreamError(f"detailpage {key} 非 JSON: {seg[:200]}") from e
 
     art = parts["articleData"]
     msgid = str(art.get("msgid") or "")

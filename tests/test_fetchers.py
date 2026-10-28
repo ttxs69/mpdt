@@ -6,11 +6,13 @@ import json
 import os
 import sys
 import unittest
+from pathlib import Path
 from typing import Any
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 FIX = os.path.join(ROOT, "tests", "fixtures")
+
 
 from mpdt.errors import UpstreamError  # noqa: E402
 from mpdt.fetchers.article_detail import channel_breakdown, parse_detail  # noqa: E402
@@ -21,7 +23,7 @@ from mpdt.fetchers.publish_list import parse_publish_list  # noqa: E402
 class TestPublishList(unittest.TestCase):
     @classmethod
     def setUpClass(cls: Any) -> Any:
-        cls.raw = open(os.path.join(FIX, "publish_list.json")).read()
+        cls.raw = Path(os.path.join(FIX, "publish_list.json")).read_text(encoding="utf-8")
 
     def test_double_json_decode(self) -> None:
         out = parse_publish_list(self.raw)
@@ -57,7 +59,7 @@ class TestPublishList(unittest.TestCase):
 class TestDatacube(unittest.TestCase):
     @classmethod
     def setUpClass(cls: Any) -> Any:
-        cls.raw = open(os.path.join(FIX, "datacube_tmpl17.json")).read()
+        cls.raw = Path(os.path.join(FIX, "datacube_tmpl17.json")).read_text(encoding="utf-8")
 
     def test_parse_rows(self) -> None:
         rows = parse_tmpl17(self.raw)
@@ -77,8 +79,12 @@ class TestArticleDetail(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls: Any) -> Any:
-        cls.p_w42 = open(os.path.join(FIX, "article_detail_2247485219_1.html")).read()
-        cls.p_093 = open(os.path.join(FIX, "article_detail_2247484945_1.html")).read()
+        cls.p_w42 = Path(os.path.join(FIX, "article_detail_2247485219_1.html")).read_text(
+            encoding="utf-8"
+        )
+        cls.p_093 = Path(os.path.join(FIX, "article_detail_2247484945_1.html")).read_text(
+            encoding="utf-8"
+        )
         cls.w42 = parse_detail("200|" + cls.p_w42)
         cls.a093 = parse_detail("200|" + cls.p_093)
 
@@ -134,7 +140,9 @@ class TestArticleDetail(unittest.TestCase):
 
     def test_cross_source_read_uv_vs_publish_list(self) -> None:
         """AC6 跨源数值一致：单篇页 read_uv 与发表记录 read_num 同源同值（当日口径）。"""
-        pl = parse_publish_list(open(os.path.join(FIX, "publish_list.json")).read())
+        pl = parse_publish_list(
+            Path(os.path.join(FIX, "publish_list.json")).read_text(encoding="utf-8")
+        )
         same = [a for a in pl["articles"] if str(a["appmsgid"]) == "2247485219"]
         self.assertEqual(len(same), 1)
         self.assertEqual(same[0]["read_num"], self.w42["metrics"]["read_uv"])
@@ -178,7 +186,7 @@ class TestStoreAndReport(unittest.TestCase):
             )
             con.commit()
             out = report.generate(con, "2026-W42", td)
-            md = open(out["md"]).read()
+            md = Path(out["md"]).read_text(encoding="utf-8")
             self.assertIn("口径说明", md)
             # 新口径说明按概念分组
             self.assertIn("按概念分组", md)
@@ -231,7 +239,7 @@ class TestStage6JsonTtyInterrupt(unittest.TestCase):
         with contextlib.redirect_stdout(buf):
             rc = cli.main(["--json", "report", "--week", "2026-W42"])
         self.assertEqual(rc, 0)
-        lines = [l for l in buf.getvalue().splitlines() if l.strip()]
+        lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
         self.assertEqual(len(lines), 1, "--json 必须恰好一行：" + repr(buf.getvalue()[:200]))
         d = j.loads(lines[0])
         self.assertTrue(d["ok"])

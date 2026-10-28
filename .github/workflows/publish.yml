@@ -116,7 +116,7 @@ jobs:
           path: dist/
 
       - name: Publish to PyPI (trusted publishing)
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4 # v1.12.4
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3 # v1.14.3
         with:
           # Attestations are what make the upload verifiable after the fact;
           # they are on by default and stated here so nobody turns them off

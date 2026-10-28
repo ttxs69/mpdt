@@ -93,7 +93,7 @@ class TestConceptTreeIntegrity(unittest.TestCase):
             "send_succ",
         }
         pl = {"read_num", "share_num", "like_num", "old_like_num", "comment_num"}
-        ad = set(__import__("mpdt.fetchers.article_detail", fromlist=["METRIC_KEYS"]).METRIC_KEYS)
+        ad = set(__import__("mpdt.parsing", fromlist=["METRIC_KEYS"]).METRIC_KEYS)
         ad |= {"publish_date", "window_days", "total_read_user", "channel_breakdown"}
         for src, keys in (("datacube_article", dc), ("publish_list", pl), ("article_detail", ad)):
             for k in keys:

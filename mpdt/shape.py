@@ -16,7 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import email
 import json
-from email.header import decode_header, make_header
+from email.header import decode_header
 from typing import Any
 
 
@@ -238,11 +238,34 @@ def datacube_metrics(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def mail_subject(raw: bytes | str) -> str:
-    """IMAP 头字节 → 主题字符串（纯）。RFC2047 编码头在这里解码。"""
+    """IMAP 头字节 → 主题字符串（纯）。
+
+    不用 `make_header`：遇到 charset='unknown-8bit'（客户端把 UTF-8 直接塞进头里，
+    不走 RFC2047）它会按 ascii 解成乱码，于是主题匹配永远不中 —— 表现就是东西
+    明明到了，回查却说没到，然后重来一遍。
+
+    按 charset 自己解：unknown-8bit 试 UTF-8，失败退 latin-1（不会抛，保住字节）。
+    """
     if isinstance(raw, str):
-        raw = raw.encode()
+        raw = raw.encode("utf-8", "surrogateescape")
     hdr = email.message_from_bytes(raw)
-    return str(make_header(decode_header(hdr["Subject"] or "")))
+    parts = []
+    for text, charset in decode_header(hdr.get("Subject") or ""):
+        if not isinstance(text, bytes):
+            parts.append(text)
+            continue
+        cs = (charset or "ascii").lower()
+        if cs in {"unknown-8bit", "unknown", "8bit", "none"}:
+            try:
+                parts.append(text.decode("utf-8"))
+            except UnicodeDecodeError:
+                parts.append(text.decode("latin-1"))
+            continue
+        try:
+            parts.append(text.decode(cs, "replace"))
+        except LookupError:  # 上游给了个不存在的 charset 名
+            parts.append(text.decode("utf-8", "replace"))
+    return "".join(parts)
 
 
 def subject_hit(subjects: list[Any], needle: str) -> tuple[Any, ...]:

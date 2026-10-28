@@ -295,3 +295,36 @@ class TestExportCsvMeta(StoreBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMetricMetaTable(unittest.TestCase):
+    """*_metrics.csv 的口径表：客户拿它判断「这列能不能和另一列比」。"""
+
+    def test_deprecated_key_is_marked_not_comparable(self) -> None:
+        rows = store.csv_metric_meta("publish_list", ["old_like_num"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][5], "不适用（已弃用）")
+
+    def test_meta_field_is_marked_by_kind(self) -> None:
+        rows = store.csv_metric_meta("datacube_article", ["refdate"])
+        self.assertTrue(rows[0][5].startswith("不适用（"), rows[0])
+
+    def test_single_series_concept_is_comparable_across_sources(self) -> None:
+        """只有一个 series 的概念，两列一定同口径 ⇒ 可以比。"""
+        rows = store.csv_metric_meta("datacube_article", ["finish_read_rate"])
+        self.assertIn(rows[0][5], {"是", "否"})
+
+    def test_unknown_key_is_reported_as_unregistered(self) -> None:
+        """上游新增字段：宁可整行标「(未登记)」，也不要编一个看起来可信的口径。"""
+        rows = store.csv_metric_meta("datacube_article", ["brand_new_field_from_upstream"])
+        self.assertEqual(rows[0][0], "brand_new_field_from_upstream")
+        self.assertEqual(rows[0][1], "datacube_article")  # 源总是已知的
+        self.assertTrue(all(cell == "(未登记)" for cell in rows[0][2:]), rows[0])
+
+
+class TestConceptSeriesCount(unittest.TestCase):
+    def test_meta_field_counts_its_series(self) -> None:
+        self.assertGreaterEqual(store._concept_series_count("refdate"), 1)
+
+    def test_unknown_key_counts_zero(self) -> None:
+        self.assertEqual(store._concept_series_count("no_such_key"), 0)

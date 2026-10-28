@@ -10,6 +10,7 @@ import os
 import sys
 import tempfile
 import unittest
+import urllib.request
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -31,6 +32,22 @@ class _StubSession:
 
     def __init__(self, cfg: Any) -> None:
         self.cfg = cfg
+
+
+class _Resp:
+    """urlopen() 的替身：json.load 只需要 read()。"""
+
+    def __init__(self, data: Any) -> None:
+        self._buf = io.BytesIO(json.dumps(data).encode())
+
+    def read(self) -> bytes:
+        return self._buf.read()
+
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        return None
 
 
 def _pl_stub(articles: Any) -> Any:
@@ -1023,3 +1040,172 @@ class TestPush(CliBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestErrorBranches(CliBase):
+    """错误分支：参数错 / 上游错 / 本地文件坏 —— 都要给出可执行的下一步。
+
+    正常路径在其它类里覆盖了；这里补的是「出事时工具说什么」。
+    """
+
+    def test_usage_error_goes_to_stderr_with_exit_2(self) -> None:
+        """--msgid 缺 --publish-date：人读模式打 stderr，退出码 2。"""
+        rc, _out, err = self.run_cli(["detail", "--msgid", "2247485219"])
+        self.assertEqual(rc, 2)
+        self.assertIn("退出码 2", err)
+        self.assertIn("--publish-date", err)
+
+    def test_detail_recent_mode_pulls_targets_from_publish_list(self) -> None:
+        page = {
+            "appmsgid": "1",
+            "itemidx": 1,
+            "title": "t",
+            "publish_date": "2026-10-15",
+            "channel_breakdown": [],
+            "channels": [],
+            "window_days": 30,
+            "metrics": {"read_uv": 1},
+        }
+        rc, out, err = self.run_cli(
+            ["detail", "--recent", "7"],
+            patch_fetch=(
+                _pl_stub([{"appmsgid": "1", "itemidx": 1, "publish_date": "2026-10-15"}]),
+                None,
+            ),
+            patch_detail=_ad_stub(page),
+        )
+        self.assertEqual(rc, 0, err)
+        self.assertIn("命中", out)
+
+    def test_one_bad_article_does_not_abort_the_batch(self) -> None:
+        """单篇失败要跳过并计数，不能让整批作废。"""
+        bad = mock.MagicMock()
+        bad.ALL_SCENE = -1
+        bad.fetch = mock.Mock(side_effect=UpstreamError("boom"))
+        rc, _out, err = self.run_cli(
+            ["detail", "--recent", "7"],
+            patch_fetch=(
+                _pl_stub([{"appmsgid": "1", "itemidx": 1, "publish_date": "2026-10-15"}]),
+                None,
+            ),
+            patch_detail=bad,
+        )
+        # 全部失败 ⇒ 上游异常（退出码 4），但消息里能看出是「全部」
+        self.assertEqual(rc, 4)
+        self.assertIn("全部抓取失败", err)
+
+    def test_corrupt_database_is_reported_as_warning(self) -> None:
+        """db 文件存在但不是 sqlite：status 不该炸，doctor 该给 warn + 下一步。"""
+        db = str(config.DEFAULTS["db_path"])
+        Path(db).write_bytes(b"not a database at all")
+        rc, out, _ = self.run_cli(["doctor"])
+        self.assertEqual(rc, 0)  # 诊断本身永远 exit 0
+        self.assertIn("数据库文件", out)
+
+    def test_broken_config_json_is_reported(self) -> None:
+        Path(config.CONFIG_PATH).write_text("{broken", encoding="utf-8")
+        rc, out, _ = self.run_cli(["doctor"])
+        self.assertEqual(rc, 0)
+        self.assertIn("配置解析", out)
+        self.assertIn("损坏", out)
+
+    def test_status_falls_back_to_default_path_on_broken_config(self) -> None:
+        Path(config.CONFIG_PATH).write_text("{broken", encoding="utf-8")
+        rc, out, _ = self.run_cli(["status"])
+        self.assertEqual(rc, 0)
+        self.assertIn("数据库：", out)
+
+    def test_doctor_cdp_reachable_without_weixin_tab(self) -> None:
+        tabs = [{"type": "page", "url": "https://example.com"}]
+        with mock.patch.object(urllib.request, "urlopen", return_value=_Resp(tabs)):
+            rc, out, _ = self.run_cli(["doctor"])
+        self.assertEqual(rc, 0)
+        self.assertIn("无 mp.weixin 标签页", out)
+
+    def test_doctor_cdp_unreachable(self) -> None:
+        with mock.patch.object(urllib.request, "urlopen", side_effect=OSError("refused")):
+            rc, out, _ = self.run_cli(["doctor"])
+        self.assertEqual(rc, 0)
+        self.assertIn("Chrome CDP", out)
+        self.assertIn("不可达", out)
+
+    def test_doctor_empty_db_is_a_warning_not_an_error(self) -> None:
+        real_store.connect(str(config.DEFAULTS["db_path"])).close()  # 建空库
+        rc, out, _ = self.run_cli(["doctor"])
+        self.assertEqual(rc, 0)
+        self.assertIn("0 行", out)
+
+    def test_doctor_stale_snapshot_suggests_fetch(self) -> None:
+        self.seed_db()
+        rc, out, _ = self.run_cli(["doctor"])
+        self.assertEqual(rc, 0)
+        self.assertIn("最近快照日", out)
+
+
+class TestMetricsPrinterBranches(CliBase):
+    """metrics 的过滤分支：查询只命中元数据 / 只命中旧字段 / 一条都不命中。"""
+
+    def test_query_matching_meta_field_only(self) -> None:
+        rc, out, _ = self.run_cli(["metrics", "refdate"])
+        self.assertEqual(rc, 0)
+        self.assertIn("refdate", out)
+
+    def test_query_that_matches_nothing_still_exits_0(self) -> None:
+        rc, out, _ = self.run_cli(["metrics", "根本不存在的关键字"])
+        self.assertEqual(rc, 0)
+        self.assertIn("共 0 个概念", out)
+
+    def test_json_mode_prints_one_line_payload(self) -> None:
+        rc, out, _ = self.run_cli(["--json", "metrics"])
+        self.assertEqual(rc, 0)
+        payload = json.loads(out.strip().splitlines()[-1])
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["cmd"], "metrics")
+
+
+class TestDetailWithExplicitTarget(CliBase):
+    def test_msgid_plus_publish_date_skips_list_fetch(self) -> None:
+        page = {
+            "appmsgid": "2247485219",
+            "itemidx": 1,
+            "title": "t",
+            "publish_date": "2026-10-15",
+            "channel_breakdown": [],
+            "channels": [],
+            "window_days": 30,
+            "metrics": {"read_uv": 1},
+        }
+        rc, out, err = self.run_cli(
+            ["detail", "--msgid", "2247485219", "--publish-date", "2026-10-15"],
+            patch_detail=_ad_stub(page),
+        )
+        self.assertEqual(rc, 0, err)
+        self.assertIn("2247485219", out)
+
+
+class TestMainEntryPoint(unittest.TestCase):
+    """`python -m mpdt` 与 console_scripts 必须走同一条路。"""
+
+    def test_python_m_mpdt_version(self) -> None:
+        import subprocess
+
+        out = subprocess.run(
+            [sys.executable, "-m", "mpdt", "--version"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("mpdt", out.stdout)
+
+    def test_run_module_exits_with_the_cli_code(self) -> None:
+        """python -m mpdt 必须和 console_scripts 走同一条路（含退出码）。"""
+        import runpy
+
+        with (
+            mock.patch.object(sys, "argv", ["mpdt", "--version"]),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            runpy.run_module("mpdt", run_name="__main__")
+        self.assertEqual(ctx.exception.code, 0)

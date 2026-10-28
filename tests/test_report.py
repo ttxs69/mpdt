@@ -8,7 +8,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -783,3 +784,44 @@ class TestTopTablePercentFormat(unittest.TestCase):
         self.assertIn("36.8%", md)
         self.assertIn("6.5%", md)
         self.assertNotIn("0.3684", md)
+
+
+class TestAdviceLayerFailureIsContained(unittest.TestCase):
+    """判断层炸了，周报也必须照常出。
+
+    这是最贵的一类失败：客户付钱要的是数据，判断层只是加值。
+    如果它一抛异常整份报告就没了，等于把「加值功能坏了」升级成「服务不可用」。
+    """
+
+    DATA: ClassVar[dict[str, Any]] = {
+        "detail_rows": [],
+        "dc_rows": [],
+        "series_by_source": {},
+        "week_keys": set(),
+        "detail_in_week": [],
+        "advice_rows": [
+            {"date": "2026-10-12", "title": "t", "read": 1, "rec": 1, "msg": 0, "fin": 0.2}
+        ],
+    }
+
+    def test_advise_exception_yields_an_error_marker_not_a_crash(self) -> None:
+        from mpdt import advice, render
+
+        with mock.patch.object(advice, "advise", side_effect=RuntimeError("boom")):
+            md, payload = render.build_report(
+                "2026-W42", "2026-10-12", "2026-10-18", dict(self.DATA)
+            )
+        self.assertIn("判断层未能生成", md)
+        self.assertEqual(payload["advice"]["verdict"], "ERROR")
+        self.assertIn("RuntimeError: boom", payload["advice"]["error"])
+        self.assertIn("公众号数据周报 2026-W42", md)  # 正文还在
+
+    def test_next_step_failure_does_not_lose_the_advice(self) -> None:
+        from mpdt import next_step, render
+
+        with mock.patch.object(next_step, "render_next_step", side_effect=RuntimeError("x")):
+            md, payload = render.build_report(
+                "2026-W42", "2026-10-12", "2026-10-18", dict(self.DATA)
+            )
+        self.assertFalse(payload["advice"].get("next_step"))
+        self.assertIn("判定：样本不足", md)  # 判断层结论还在，只是没有「下一步」

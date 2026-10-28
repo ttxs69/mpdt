@@ -74,8 +74,9 @@ if [ "$DRY_RUN" = "1" ]; then
   say "2. dry run — building ${CURRENT} without publishing"
   rm -rf dist build
   "$PY" -m build 2>&1 | tail -5
-  "$PY" -m pip install -q twine
-  "$PY" -m twine check dist/*
+  "$PY" -m pip install -q --upgrade "twine==7.0.0" 2>&1 | tail -2
+  "$PY" -m twine check --strict dist/*
+  "$PY" tools/verify_artifact.py dist --expect-version "$CURRENT"
   say "2b. what would be published"
   ls -la dist/
   exit 0

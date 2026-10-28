@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # A pinned Action is a frozen Action. Without a bot to propose the next
+  # stable tag, "pinned" becomes "abandoned" — and the pins in the workflows
+  # are commit SHAs, which nothing human-readable points at.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # One pull request for all the Action bumps, so a CI run proves the set
+      # works together rather than one at a time.
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      dev-tooling:
+        patterns: ["ruff", "mypy", "pytest*", "coverage*", "types-*"]
+      runtime:
+        patterns: ["requests", "websocket-client"]
+        update-types: ["minor", "patch"]

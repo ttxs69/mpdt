@@ -103,7 +103,7 @@ def family_verdict(rows, hit_rec: int = HIT_REC, min_n: int = 2) -> dict:
       FAMILY_SPLIT     —— 主力 vs 停发（有据）
       FAMILY_SPARK     —— 低分家族里有孤峰 ⇒ 不能停，要找可复制变量
     """
-    base_caveat = "家族按标题前缀归类，同名系列会合并；样本 <%d 篇的家族不参与" % min_n
+    base_caveat = f"家族按标题前缀归类，同名系列会合并；样本 <{min_n} 篇的家族不参与"
     fams = group_rows(rows, hit_rec=hit_rec)
     usable = {k: v for k, v in fams.items() if v["n"] >= min_n}
     if len(usable) < 2:
@@ -131,23 +131,17 @@ def family_verdict(rows, hit_rec: int = HIT_REC, min_n: int = 2) -> dict:
                 "families": fams,
                 "usable": usable,
                 "headline": (
-                    '「%s」不是"完全吃不到推荐"——%d 篇里有 %d 篇吃到（最高 %d 推荐阅读），'
-                    "其余为 0。这是**内容事件**的功劳，不是形态的功劳。"
-                    % (lo[0], lo[1]["n"], lo[1]["hit_n"], lo[1]["spike_max"])
+                    f'「{lo[0]}」不是"完全吃不到推荐"——{lo[1]["n"]} 篇里有 {lo[1]["hit_n"]} 篇吃到（最高 {lo[1]["spike_max"]} 推荐阅读），其余为 0。这是**内容事件**的功劳，不是形态的功劳。'
                 ),
                 "actions": [
-                    "**别停掉这一形态**——它能爆（最高 %d 推荐阅读），只是不常爆。"
-                    % lo[1]["spike_max"],
-                    "把爆过的那 %d 篇找出来对比（标题/选题/发布时机），找可复制的变量。%s"
-                    % (lo[1]["hit_n"], ("已知爆款：" + titles) if titles else ""),
-                    "「%s」是主力（%d 篇，推荐中位 %d）——排期给它留位置。"
-                    % (hi[0], hi[1]["n"], hi[1]["rec_med"]),
-                    "「%s」保持现状但降低频率（%d 篇里只有 %d 篇吃到推荐，中位 %d）。"
-                    % (lo[0], lo[1]["n"], lo[1]["hit_n"], lo[1]["rec_med"]),
+                    f"**别停掉这一形态**——它能爆（最高 {lo[1]['spike_max']} 推荐阅读），只是不常爆。",
+                    f"把爆过的那 {lo[1]['hit_n']} 篇找出来对比（标题/选题/发布时机），找可复制的变量。{('已知爆款：' + titles) if titles else ''}",
+                    f"「{hi[0]}」是主力（{hi[1]['n']} 篇，推荐中位 {hi[1]['rec_med']}）——排期给它留位置。",
+                    f"「{lo[0]}」保持现状但降低频率（{lo[1]['n']} 篇里只有 {lo[1]['hit_n']} 篇吃到推荐，中位 {lo[1]['rec_med']}）。",
                 ],
                 "caveats": [
                     base_caveat,
-                    "「孤峰」判定：该组命中篇数 ≤ 组内篇数/4 且 max ≥ %d" % hit_rec,
+                    f"「孤峰」判定：该组命中篇数 ≤ 组内篇数/4 且 max ≥ {hit_rec}",
                 ],
             }
         return {
@@ -158,15 +152,11 @@ def family_verdict(rows, hit_rec: int = HIT_REC, min_n: int = 2) -> dict:
             "families": fams,
             "usable": usable,
             "headline": (
-                "两类内容吃推荐的差距 %.1f 倍：「%s」推荐阅读中位 %d，"
-                "「%s」只有 %d（%d 篇全部低于阈值，无孤峰）。"
-                % (ratio, hi[0], hi[1]["rec_med"], lo[0], lo[1]["rec_med"], lo[1]["n"])
+                f"两类内容吃推荐的差距 {ratio:.1f} 倍：「{hi[0]}」推荐阅读中位 {hi[1]['rec_med']}，「{lo[0]}」只有 {lo[1]['rec_med']}（{lo[1]['n']} 篇全部低于阈值，无孤峰）。"
             ),
             "actions": [
-                "把「%s」当主力（%d 篇，推荐阅读中位 %d）——下周的排期给它留位置。"
-                % (hi[0], hi[1]["n"], hi[1]["rec_med"]),
-                "「%s」先停发或大改（%d 篇，推荐阅读中位 %d，0 篇吃到推荐）。"
-                % (lo[0], lo[1]["n"], lo[1]["rec_med"]),
+                f"把「{hi[0]}」当主力（{hi[1]['n']} 篇，推荐阅读中位 {hi[1]['rec_med']}）——下周的排期给它留位置。",
+                f"「{lo[0]}」先停发或大改（{lo[1]['n']} 篇，推荐阅读中位 {lo[1]['rec_med']}，0 篇吃到推荐）。",
                 f"别在这两类之间平均用力——这 {ratio:.1f} 倍差距是分发侧的偏好，不是内容质量的连续刻度。",
             ],
             "caveats": [base_caveat, "只有「组内无孤峰」才判停发；有孤峰走 FAMILY_SPARK"],

@@ -290,21 +290,12 @@ def cmd_detail(args):
                 "recommend_pct": (rec or {}).get("read_pct"),
             }
         )
+        ratio = metrics.get("finished_read_pv_ratio")
+        ratio_txt = f"{100 * ratio:.1f}%" if isinstance(ratio, (int, float)) else "NA"
         r.say(
-            "  ✓ %s_%d 阅读%s 完读率%s 推荐%s%% 首渠道=%s(%s%%)"
-            % (
-                d["appmsgid"],
-                d["itemidx"],
-                metrics.get("read_uv"),
-                (
-                    "%.1f%%" % (100 * metrics["finished_read_pv_ratio"])
-                    if isinstance(metrics.get("finished_read_pv_ratio"), (int, float))
-                    else "NA"
-                ),
-                (rec or {}).get("read_pct", "NA"),
-                (top or {}).get("scene_label", "NA"),
-                (top or {}).get("read_pct", "NA"),
-            )
+            f"  ✓ {d['appmsgid']}_{d['itemidx']} 阅读{metrics.get('read_uv')} 完读率{ratio_txt} "
+            f"推荐{(rec or {}).get('read_pct', 'NA')}% "
+            f"首渠道={(top or {}).get('scene_label', 'NA')}({(top or {}).get('read_pct', 'NA')}%)"
         )
     store.log_run(
         con,
@@ -314,7 +305,7 @@ def cmd_detail(args):
     )
     con.commit()
     if targets and ok == 0:
-        raise UpstreamError("单篇渠道页全部抓取失败（%d 篇）" % fail)
+        raise UpstreamError(f"单篇渠道页全部抓取失败（{fail} 篇）")
     return r.result(
         f"单篇渠道页快照完成：{ok} 篇入库（失败 {fail}）→ {cfg['db_path']}",
         {
@@ -669,15 +660,7 @@ def _print_concepts(concepts: list[Any]) -> None:
             print("  > " + c["note"])
         for s in c["series"]:
             print(
-                "  - `%s` · %s · 字段 `%s` · 窗口 %s (%d天) · 分母「%s」"
-                % (
-                    s["key"],
-                    s["source"],
-                    s["field"],
-                    s["window"],
-                    s["window_days"],
-                    s["denominator"],
-                )
+                f"  - `{s['key']}` · {s['source']} · 字段 `{s['field']}` · 窗口 {s['window']} ({s['window_days']}天) · 分母「{s['denominator']}」"
             )
             if s.get("note"):
                 print("      注：" + s["note"])
@@ -697,16 +680,7 @@ def _print_meta_fields(query: str | None) -> None:
             continue
         for _skey, s in m["series"].items():
             print(
-                "  - `%s`（%s / %s）：源 %s，字段 `%s`，%s，%d天窗口"
-                % (
-                    mname,
-                    m["display"],
-                    m["kind"],
-                    s["source"],
-                    s["field"],
-                    s["window"],
-                    s["window_days"],
-                )
+                f"  - `{mname}`（{m['display']} / {m['kind']}）：源 {s['source']}，字段 `{s['field']}`，{s['window']}，{s['window_days']}天窗口"
             )
     print()
 
@@ -758,13 +732,7 @@ def cmd_metrics(args):
         _print_deprecated(args.query)
         _print_auto_pairs(args.query)
     return r.result(
-        "共 %d 个概念，%d 个 series；%d 个元数据字段；%d 个旧版字段"
-        % (
-            len(concepts),
-            sum(len(c["series"]) for c in concepts),
-            len(metrics_mod.META_FIELDS),
-            len(metrics_mod.DEPRECATED),
-        ),
+        f"共 {len(concepts)} 个概念，{sum(len(c['series']) for c in concepts)} 个 series；{len(metrics_mod.META_FIELDS)} 个元数据字段；{len(metrics_mod.DEPRECATED)} 个旧版字段",
         {
             "concepts": concepts,
             "auto_pairs": [

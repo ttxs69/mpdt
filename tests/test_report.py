@@ -81,12 +81,12 @@ class ReportBase(unittest.TestCase):
             store.upsert(
                 self.con,
                 "datacube_article",
-                "2026-10-1%d" % (2 + i),
+                f"2026-10-1{2 + i}",
                 am,
                 1,
                 "文章" + am,
                 {
-                    "refdate": "2026-10-1%d" % (2 + i),
+                    "refdate": f"2026-10-1{2 + i}",
                     "finish_read_rate": fr,
                     "read_rate": 0.5,
                     "total_pv": 100 + i,

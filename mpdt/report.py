@@ -218,7 +218,7 @@ def _fmt_value(v: Any, is_ratio: bool) -> str:
     if not isinstance(v, (int, float)):
         return "-"
     if is_ratio:
-        return "%.1f%%" % (100 * v)
+        return f"{100 * v:.1f}%"
     return str(int(v)) if float(v).is_integer() else (f"{v:.1f}")
 
 
@@ -293,7 +293,7 @@ def _wide_row(
         cells.append(_fmt_value(v, is_ratio))
         if v != 0:
             saw_nonzero = True
-    row = [(title or "")[:36], "%s_%d" % key, *cells]
+    row = [(title or "")[:36], f"{key[0]}_{key[1]}", *cells]
     if is_ratio and len(series) >= 2:
         row.append(_ratio_diff_note(series, by_source, key))
     # 「全 0」行折叠（噪音过滤）：宽表只保留至少一个 series 非零的行
@@ -350,7 +350,7 @@ def _wide_rows_for_concept(con: Any, cname: str, week_keys: set | None = None) -
             rows.append(row)
 
     header = ["文章", "appmsgid_itemidx"] + [
-        "%s(%s·%d天)" % (c["display"], skey, s["window_days"]) for skey, s in series
+        f"{c['display']}({skey}·{s['window_days']}天)" for skey, s in series
     ]
     if is_ratio and len(series) >= 2:
         header.append("差值(百分点·两两差)")
@@ -698,7 +698,7 @@ def _channel_row(title: str, m: dict) -> list | None:
         (title or "")[:36],
         m.get("publish_date", ""),
         ruv,
-        ("%.1f%%" % (100 * fr)) if isinstance(fr, (int, float)) else "-",
+        (f"{100 * fr:.1f}%") if isinstance(fr, (int, float)) else "-",
         m.get("avg_article_read_time", ""),
         _channel_pct(m, 6) if _channel_pct(m, 6) is not None else "-",
         _channel_pct(m, 0) if _channel_pct(m, 0) is not None else "-",
@@ -787,9 +787,7 @@ def generate(con: Any, iso_week: str, out_dir: str) -> dict:
     if top["n"]:
         n = top["n"]
         suffix = "" if n == 10 else f"（共 {n} 篇）"
-        lines.append(
-            "## 完读率 Top%d%s（单篇渠道页口径；ad30=30天窗口, dc7=发表后7天）" % (n, suffix)
-        )
+        lines.append(f"## 完读率 Top{n}{suffix}（单篇渠道页口径；ad30=30天窗口, dc7=发表后7天）")
         lines.append(
             _md_table(
                 ["文章", "完读率", "阅读uv", "推荐占比", "均阅读时长", "阅读率", "口径"],

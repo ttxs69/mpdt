@@ -134,35 +134,24 @@ def main():
     print("token:", tok[:4] + "...")
 
     for mid, idx, pub in targets:
-        js = """
-        (async () => {
-          const res = await fetch('/misc/appmsganalysis?action=detailpage&msgid=%s_%d&publish_date=%s&type=int&pageVersion=1&token=%s&lang=zh_CN', {credentials:'include'});
+        js = f"""
+        (async () => {{
+          const res = await fetch('/misc/appmsganalysis?action=detailpage&msgid={mid}_{idx}&publish_date={pub}&type=int&pageVersion=1&token={tok}&lang=zh_CN', {{credentials:'include'}});
           const t = await res.text();
           return res.status + '|' + t;
-        })()""" % (mid, idx, pub, tok)
+        }})()"""
         raw = run_js(js) or ""
         status, _, html = raw.partition("|")
         fx, parts = extract_cgi_data(html)
         if status != "200" or fx is None:
-            print(
-                "SKIP %s_%d status=%s parsed=%s len=%d"
-                % (mid, idx, status, fx is not None, len(html))
-            )
+            print(f"SKIP {mid}_{idx} status={status} parsed={fx is not None} len={len(html)}")
             continue
-        path = os.path.join(OUT, "article_detail_%s_%d.html" % (mid, idx))
+        path = os.path.join(OUT, f"article_detail_{mid}_{idx}.html")
         with open(path, "w") as f:
             f.write(fx)
-        print(
-            "OK %s_%d (%s) -> %d bytes  title=%r  read_uv=%s"
-            % (
-                mid,
-                idx,
-                pub,
-                len(fx),
-                parts["articleData"].get("title", "")[:18],
-                (parts["articleData"].get("article_data_new") or {}).get("read_uv"),
-            )
-        )
+        title_hint = parts["articleData"].get("title", "")[:18]
+        read_uv = (parts["articleData"].get("article_data_new") or {}).get("read_uv")
+        print(f"OK {mid}_{idx} ({pub}) -> {len(fx)} bytes  title={title_hint!r}  read_uv={read_uv}")
         time.sleep(2)
 
 

@@ -156,7 +156,7 @@ def advise(rows: list, recent_days: int = 3) -> dict:
     if len(recent) < 2:
         return {
             "verdict": "INSUFFICIENT",
-            "headline": "本周样本不足（%d 篇），现在给结论会是编的。" % len(recent),
+            "headline": f"本周样本不足（{len(recent)} 篇），现在给结论会是编的。",
             "actions": ["把本周发的文章数补到 ≥2 篇，我下轮再给判断"],
             "evidence": ev,
             "caveats": caveats,
@@ -164,14 +164,13 @@ def advise(rows: list, recent_days: int = 3) -> dict:
 
     # 2) 断供优先 —— 分发中断不是内容问题
     if in_black:
-        wins = "、".join("%s~%s（%d 天）" % (w["from"], w["to"], w["days"]) for w in b["windows"])
+        wins = "、".join(f"{w['from']}~{w['to']}（{w['days']} 天）" for w in b["windows"])
         return {
             "verdict": "BLACKOUT",
             "headline": f"检测到推荐断供窗：{wins}。期间的零推荐是**分发中断**，不是内容问题。",
             "actions": [
                 "先别改内容：断供期的数据不能用来评价选题或标题。",
-                "查这 %d 天的账号状态：推荐/看一看入口是否被降权、是否有违规提示、"
-                "是否触发了发文频率或内容重复限制。" % b["windows"][0]["days"],
+                f"查这 {b['windows'][0]['days']} 天的账号状态：推荐/看一看入口是否被降权、是否有违规提示、是否触发了发文频率或内容重复限制。",
                 "复供后再用 2 周数据重算命中率，那时才谈结构调整。",
             ],
             "evidence": ev,
@@ -211,14 +210,12 @@ def advise(rows: list, recent_days: int = 3) -> dict:
         return {
             "verdict": "NO_SIGNAL",
             "headline": (
-                "最近 %d 篇里只有 %d 篇拿到推荐（≥%d 人），"
-                "账号当前基本吃不到平台推荐。" % (len(recent_clean), len(hits), HIT_REC)
+                f"最近 {len(recent_clean)} 篇里只有 {len(hits)} 篇拿到推荐（≥{HIT_REC} 人），账号当前基本吃不到平台推荐。"
             ),
             "actions": [
                 "查推荐入口状态：账号权重、是否被限流、是否有历史违规。",
                 "在这个状态下优化标题/封面是无效动作，先把分发通道修好。",
-                "同时保留现有内容形态（消息渠道阅读 %d 人中位），别在推荐没恢复时大改。"
-                % int(statistics.median([r["msg"] for r in recent_clean]) if recent_clean else 0),
+                f"同时保留现有内容形态（消息渠道阅读 {int(statistics.median([r['msg'] for r in recent_clean]) if recent_clean else 0)} 人中位），别在推荐没恢复时大改。",
             ],
             "evidence": ev,
             "caveats": caveats,
@@ -228,12 +225,11 @@ def advise(rows: list, recent_days: int = 3) -> dict:
     return {
         "verdict": "NORMAL",
         "headline": (
-            "最近 %d 篇里 %d 篇拿到推荐，推荐阅读占比 %.0f%%，"
-            "分发正常，暂不需要结构调整。" % (len(recent_clean), len(hits), 100 * ev["rec_share"])
+            f"最近 {len(recent_clean)} 篇里 {len(hits)} 篇拿到推荐，推荐阅读占比 {100 * ev['rec_share']:.0f}%，分发正常，暂不需要结构调整。"
         ),
         "actions": [
             "保持现有节奏；本轮没有发现需要改的结构性问题。",
-            "继续发满 %d 篇/周——样本太少时任何结论都会在下一周被推翻。" % max(2, len(recent)),
+            f"继续发满 {max(2, len(recent))} 篇/周——样本太少时任何结论都会在下一周被推翻。",
         ],
         "evidence": ev,
         "caveats": caveats,
@@ -259,25 +255,19 @@ def render(adv: dict) -> str:
         lines.append("**具体动作**")
         lines.append("")
         for i, a in enumerate(adv["actions"], 1):
-            lines.append("%d. %s" % (i, a))
+            lines.append(f"{i}. {a}")
         lines.append("")
     ev = adv.get("evidence") or {}
     if ev:
         bits = []
         if ev.get("n_recent") is not None:
             bits.append(
-                "近窗口 %d 篇 / 全期 %d 篇（%s ~ %s）"
-                % (
-                    ev.get("n_recent", 0),
-                    ev.get("n_total", 0),
-                    ev.get("date_from") or "?",
-                    ev.get("date_to") or "?",
-                )
+                f"近窗口 {ev.get('n_recent', 0)} 篇 / 全期 {ev.get('n_total', 0)} 篇（{ev.get('date_from') or '?'} ~ {ev.get('date_to') or '?'}）"
             )
         if ev.get("rec_share") is not None:
-            bits.append("推荐阅读占比 %.0f%%" % (100 * ev["rec_share"]))
+            bits.append(f"推荐阅读占比 {100 * ev['rec_share']:.0f}%")
         if ev.get("hit_rate_clean") is not None:
-            bits.append("干净期命中率 %.0f%%" % (100 * ev["hit_rate_clean"]))
+            bits.append(f"干净期命中率 {100 * ev['hit_rate_clean']:.0f}%")
         if bits:
             lines.append("> 口径：{}。".format("；".join(bits)))
             lines.append("")

@@ -24,8 +24,8 @@ def _mk_rows() -> Any:
     for i in range(10):
         rows.append(
             {
-                "date": "2026-10-%02d" % (10 + i % 5),
-                "title": "arxiv AI-Agent 精选 %d" % i,
+                "date": f"2026-10-{10 + i % 5:02}",
+                "title": f"arxiv AI-Agent 精选 {i}",
                 "read": 100,
                 "rec": 50 + i % 10,
                 "msg": 10,
@@ -37,8 +37,8 @@ def _mk_rows() -> Any:
     for i in range(8):
         rows.append(
             {
-                "date": "2026-10-%02d" % (10 + i % 5),
-                "title": "rea 登顶 GH Trending %d" % i,
+                "date": f"2026-10-{10 + i % 5:02}",
+                "title": f"rea 登顶 GH Trending {i}",
                 "read": 30,
                 "rec": (60 if i == 0 else 0),
                 "msg": 8,
@@ -50,8 +50,8 @@ def _mk_rows() -> Any:
     for i in range(3):
         rows.append(
             {
-                "date": "2026-10-%02d" % (10 + i % 3),
-                "title": "claude 插件榜 %d" % i,
+                "date": f"2026-10-{10 + i % 3:02}",
+                "title": f"claude 插件榜 {i}",
                 "read": 20,
                 "rec": 0,
                 "msg": 12,
@@ -136,8 +136,8 @@ class TestAdvise(unittest.TestCase):
         for i in range(4):
             rows.append(
                 {
-                    "date": "2026-10-1%d" % i,
-                    "title": "aaa 系列 %d" % i,
+                    "date": f"2026-10-1{i}",
+                    "title": f"aaa 系列 {i}",
                     "read": 20,
                     "rec": 0,
                     "msg": 5,
@@ -148,8 +148,8 @@ class TestAdvise(unittest.TestCase):
         for i in range(4):
             rows.append(
                 {
-                    "date": "2026-10-2%d" % i,
-                    "title": "bbb 系列 %d" % i,
+                    "date": f"2026-10-2{i}",
+                    "title": f"bbb 系列 {i}",
                     "read": 20,
                     "rec": 0,
                     "msg": 5,
@@ -188,8 +188,8 @@ class TestAdvise(unittest.TestCase):
             for k in range(2):
                 rows.append(
                     {
-                        "date": "2026-10-%02d" % d,
-                        "title": "arxiv 精选 %d-%d" % (d, k),
+                        "date": f"2026-10-{d:02}",
+                        "title": f"arxiv 精选 {d}-{k}",
                         "read": 50,
                         "rec": 0,
                         "msg": 10,
@@ -209,8 +209,8 @@ class TestBlackout(unittest.TestCase):
             for k in range(2):
                 rows.append(
                     {
-                        "date": "2026-10-%02d" % d,
-                        "title": "x %d-%d" % (d, k),
+                        "date": f"2026-10-{d:02}",
+                        "title": f"x {d}-{k}",
                         "read": 50,
                         "rec": (0 if d in (11, 12) else 40),
                         "msg": 5,

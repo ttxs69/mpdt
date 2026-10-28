@@ -283,7 +283,7 @@ class TestAutoPairs(unittest.TestCase):
                 self.assertIn(
                     cname,
                     concepts_with_pair,
-                    "概念 %s 有 %d series 但未生成配对" % (cname, len(non_dep)),
+                    f"概念 {cname} 有 {len(non_dep)} series 但未生成配对",
                 )
 
     def test_no_pair_for_single_series_concept(self) -> None:

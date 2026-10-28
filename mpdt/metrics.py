@@ -589,7 +589,7 @@ def calibration_note() -> str:
         for skey, s in c["series"].items():
             if s.get("deprecated"):
                 continue
-            parts.append("`%s`=「%s」·%d天" % (skey, s["field"], s["window_days"]))
+            parts.append(f"`{skey}`=「{s['field']}」·{s['window_days']}天")
         if not parts:
             continue
         lines.append("> - **{}**（{}）：{}".format(c["display"], c["unit"], "；".join(parts)))
@@ -666,9 +666,7 @@ def _pair_table_lines() -> list[Any]:
             if sa["denominator"] != sb["denominator"]:
                 diff_set.add("分母")
         diff_str = "、".join(sorted(diff_set)) or "同窗口·同分母"
-        out.append(
-            "| %s（`%s`，%d 对） | %s | %s |" % (display, cname, len(pairs), pair_str, diff_str)
-        )
+        out.append(f"| {display}（`{cname}`，{len(pairs)} 对） | {pair_str} | {diff_str} |")
     return out
 
 

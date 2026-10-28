@@ -186,7 +186,7 @@ def verify_delivery(
             "delivered": False,
             "subject": None,
             "checked": checked,
-            "error": "收件箱最近 %d 封中未找到主题含 %r 的邮件" % (checked, subject_contains),
+            "error": f"收件箱最近 {checked} 封中未找到主题含 {subject_contains!r} 的邮件",
         }
     except Exception as e:
         return {

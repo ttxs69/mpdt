@@ -9,11 +9,16 @@
 双重 JSON：publish_page 与 publish_info 均为字符串，需二次 decode。
 """
 
+from __future__ import annotations
+
 import datetime as _dt
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ..errors import UpstreamError
+
+if TYPE_CHECKING:
+    from ..session import Session
 
 LIST_JS = """
 (async () => {
@@ -24,7 +29,7 @@ LIST_JS = """
 
 def _decode_outer(raw: str) -> dict[str, Any]:
     try:
-        return json.loads(raw)
+        return cast(dict[str, Any], json.loads(raw))
     except ValueError as e:
         raise UpstreamError("publish_list 外层非 JSON: " + raw[:200]) from e
 
@@ -65,7 +70,7 @@ def _publish_timestamp(info: dict[str, Any]) -> Any:
     return (info.get("sent_info") or {}).get("time")
 
 
-def _publish_date(ct: Any) -> str:
+def _publish_date(ct: int | None) -> str:
     """epoch 秒 → Asia/Shanghai 的 YYYY-MM-DD；非法值返回空串。"""
     if not (isinstance(ct, int) and ct > 0):
         return ""
@@ -122,7 +127,7 @@ def parse_publish_list(raw: str) -> dict[str, Any]:
     }
 
 
-def fetch(session: Any, count: Any = 20) -> dict[str, Any]:
+def fetch(session: Session, count: int = 20) -> dict[str, Any]:
     raw = session.fetch_text(LIST_JS % (count, session.ensure_token()))
     out = parse_publish_list(raw)
     assert out["articles"] or out["total_publish"] == 0, (

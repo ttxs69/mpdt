@@ -113,7 +113,7 @@ class CliBase(unittest.TestCase):
 
     # ---- 供各用例构造快照数据 ----
     def seed_db(self) -> None:
-        con = real_store.connect(config.DEFAULTS["db_path"])
+        con = real_store.connect(str(config.DEFAULTS["db_path"]))
         real_store.upsert(
             con,
             "datacube_article",
@@ -352,7 +352,7 @@ class TestFetchStubbed(CliBase):
         self.assertEqual(p["data"]["datacube_rows"], 1)
         self.assertEqual(p["data"]["end"], "2026-10-16")  # T+1：昨天
         # 快照确实入库（stat_date=拉取日 2026-10-17）
-        con = real_store.connect(config.DEFAULTS["db_path"])
+        con = real_store.connect(str(config.DEFAULTS["db_path"]))
         n = con.execute("SELECT COUNT(*) FROM snapshots WHERE stat_date='2026-10-17'").fetchone()[0]
         con.close()
         self.assertEqual(n, 2)
@@ -372,7 +372,7 @@ class TestFetchStubbed(CliBase):
         dc = _dc_stub([])
         rc, _out, _err = self.run_cli(["--json", "fetch"], patch_fetch=(pl, dc))
         self.assertEqual(rc, 0)
-        con = real_store.connect(config.DEFAULTS["db_path"])
+        con = real_store.connect(str(config.DEFAULTS["db_path"]))
         row = con.execute(
             "SELECT metrics FROM snapshots WHERE stat_date='2026-10-17'"
             " AND source='publish_list' AND appmsgid='mA'"
@@ -390,7 +390,7 @@ class TestFetchStubbed(CliBase):
         dc = _dc_stub([])
         rc, _out, _err = self.run_cli(["--json", "fetch"], patch_fetch=(pl, dc))
         self.assertEqual(rc, 0)
-        con = real_store.connect(config.DEFAULTS["db_path"])
+        con = real_store.connect(str(config.DEFAULTS["db_path"]))
         row = con.execute(
             "SELECT metrics FROM snapshots WHERE stat_date='2026-10-17'"
             " AND source='publish_list' AND appmsgid='mA'"
@@ -722,7 +722,7 @@ class TestDoctor(CliBase):
         # 未 fetch 过：doctor 不应顺手建库（store.connect 会建表；doctor 用只读 URI）
         os.remove(config.CONFIG_PATH)
         self.run_cli(["init"])
-        db = config.DEFAULTS["db_path"]
+        db = str(config.DEFAULTS["db_path"])
         if os.path.exists(db):
             os.remove(db)
         self.run_cli(["doctor"])

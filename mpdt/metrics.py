@@ -13,6 +13,7 @@
 唯一真相源：本模块的 CONCEPTS；report / CLI / README / CSV 元数据全部由本模块派生。
 """
 
+from collections.abc import Iterable, Iterator
 from itertools import combinations
 from typing import Any
 
@@ -439,7 +440,7 @@ def concepts() -> dict[str, Any]:
     return CONCEPTS
 
 
-def all_series() -> Any:
+def all_series() -> Iterator[tuple[str, str, dict[str, Any]]]:
     """展开 CONCEPTS → 平铺 series 元组流（每个 (concept, series_key, series_dict)）。
 
     排除 deprecated（不参与对照/配对）。META_FIELDS 是非指标独立表，不在此流。
@@ -451,21 +452,23 @@ def all_series() -> Any:
             yield cname, skey, s
 
 
-def _meta_series() -> Any:
+def _meta_series() -> Iterator[tuple[str, str, dict[str, Any]]]:
     """META_FIELDS 摊平成 (mname, skey, series)。"""
     for mname, m in META_FIELDS.items():
         for skey, s in m["series"].items():
             yield mname, skey, s
 
 
-def _deprecated_series() -> Any:
+def _deprecated_series() -> Iterator[tuple[str, str, dict[str, Any]]]:
     """DEPRECATED 摊平成 (dname, skey, series)。"""
     for dname, d in DEPRECATED.items():
         for skey, s in d["series"].items():
             yield dname, skey, s
 
 
-def _match_series(entries: Any, field: str | None, source: str | None) -> Any:
+def _match_series(
+    entries: Iterable[tuple[str, str, dict[str, Any]]], field: str | None, source: str | None
+) -> tuple[str, str, dict[str, Any]] | None:
     """在 (name, skey, series) 序列里找第一个匹配；没有返回 None。"""
     for name, skey, s in entries:
         if field is not None and s["field"] != field:
@@ -476,7 +479,9 @@ def _match_series(entries: Any, field: str | None, source: str | None) -> Any:
     return None
 
 
-def find_series(field: str | None = None, source: str | None = None) -> Any:
+def find_series(
+    field: str | None = None, source: str | None = None
+) -> tuple[str, str, dict[str, Any]] | None:
     """按 field 查 series（field 在 (source, field) 上唯一）；可同时按 source 限定。
 
     查询顺序：CONCEPTS → META_FIELDS → DEPRECATED。
@@ -493,7 +498,7 @@ def find_series(field: str | None = None, source: str | None = None) -> Any:
     return None
 
 
-def auto_pairs() -> Any:
+def auto_pairs() -> tuple[tuple[str, str, str, str], ...]:
     """易混淆配对：同概念 ≥2 series 即一对；why 由 window/denominator 差异自动生成。
 
     deprecated / META_FIELDS 不参与。返回 tuple of (concept_name, series_a_key,
@@ -649,7 +654,7 @@ def _deprecated_lines() -> list[Any]:
 
 def _pair_table_lines() -> list[Any]:
     """易混淆配对表：同概念的 C(N,2) 对折叠成一行。"""
-    by_cname: dict = {}
+    by_cname: dict[str, list[tuple[str, str]]] = {}
     for cname, a, b, _why in auto_pairs():
         by_cname.setdefault(cname, []).append((a, b))
     out = ["| 概念 | 不可直接比的 series 配对 | 主要差异 |", "|---|---|---|"]

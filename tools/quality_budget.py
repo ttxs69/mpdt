@@ -29,7 +29,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "quality_budget.json"
@@ -59,7 +59,7 @@ def load() -> dict[str, int]:
     if not BASELINE.exists():
         return {}
     try:
-        return json.loads(BASELINE.read_text(encoding="utf-8"))
+        return cast(dict[str, int], json.loads(BASELINE.read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError):
         return {}
 

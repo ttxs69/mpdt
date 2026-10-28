@@ -41,12 +41,13 @@ def detect_blackout(rows: list[Any]) -> dict[str, Any]:
     与 diagnose.py 同逻辑，但在本模块内独立实现，避免跨目录 import 依赖
     （mpdt 是要独立发布的 PyPI 包，不能反向依赖 ~/moneymaker）。
     """
-    by_day = {}
+    by_day: dict[str, list[float]] = {}
     for r in rows:
         by_day.setdefault(r["date"], []).append(float(r.get("rec") or 0))
     days = sorted(d for d in by_day if d)
     black_days = [d for d in days if len(by_day[d]) >= 2 and max(by_day[d]) < BLACKOUT_MAX_REC]
-    windows, cur = [], []
+    windows: list[dict[str, Any]] = []
+    cur: list[str] = []
     for d in days:
         if d in black_days:
             cur.append(d)
@@ -71,7 +72,7 @@ def advise(rows: list[Any], recent_days: int = 3) -> dict[str, Any]:
     返回 {verdict, headline, actions[], evidence{}, caveats[]}。
     verdict 取值：INSUFFICIENT / BLACKOUT / FAMILY_SPLIT / NORMAL / NO_SIGNAL
     """
-    caveats = []
+    caveats: list[str] = []
     if not rows:
         return {
             "verdict": "INSUFFICIENT",
@@ -202,7 +203,8 @@ def render(adv: dict[str, Any]) -> str:
         "NO_SIGNAL": "推荐缺位",
         "NORMAL": "分发正常",
     }
-    lines.append("**判定：{}**".format(verdict_cn.get(adv.get("verdict"), adv.get("verdict"))))
+    vy = str(adv.get("verdict") or "")
+    lines.append(f"**判定：{verdict_cn.get(vy, vy)}**")
     lines.append("")
     lines.append(adv.get("headline", ""))
     lines.append("")

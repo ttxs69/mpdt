@@ -67,7 +67,7 @@ def _normalize_recent(data: Any) -> Any:
 
 def _normalize_overall(data: Any) -> Any:
     """data = [{"category": "with_mirrors", "date": "yyyy-mm-dd", "downloads": N}, ...]"""
-    bucket = {"with_mirrors": {}, "without_mirrors": {}}
+    bucket: dict[str, dict[str, int]] = {"with_mirrors": {}, "without_mirrors": {}}
     for row in data or []:
         bucket[row.get("category", "")][row.get("date")] = int(row.get("downloads", 0))
     return bucket
@@ -203,7 +203,7 @@ def main() -> int:
     )
     p.add_argument("--all", action="store_true", help="Include overall per-day breakdown")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("check").call_default = lambda a: None
+    sub.add_parser("check")
     sub.add_parser("init")
     sub.add_parser("print")
     args = p.parse_args()

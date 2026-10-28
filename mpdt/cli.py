@@ -2,6 +2,8 @@
 """mpdt CLI（FR1/FR3/FR4/FR5/FR6）。子命令：init / fetch / detail / report / export / metrics / doctor / status。
 退出码：0 成功（含空数据）｜2 配置｜3 凭据｜4 上游异常｜130 用户中断。"""
 
+from __future__ import annotations
+
 import argparse
 import contextlib
 import datetime as dt
@@ -12,11 +14,15 @@ import stat as stat_mod
 import sys
 import urllib.error
 import urllib.request
-from typing import Any
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, Protocol
 
 from . import __version__, config, push, render, report, shape, store
 from . import metrics as metrics_mod
 from .errors import MpdtError, UpstreamError
+
+if TYPE_CHECKING:  # 仅类型：Session 在函数内 import，避免循环
+    from .session import Session
 
 
 def today_shanghai() -> dt.date:
@@ -29,33 +35,37 @@ def today_shanghai() -> dt.date:
 class _R:
     """收集单命令的结构化结果：print（人读）+ data（--json 时输出）。"""
 
-    def __init__(self, quiet: Any = False) -> None:
+    quiet: bool
+    data: Any
+    meta: dict[str, Any]
+    ok: bool
+
+    def __init__(self, quiet: bool = False) -> None:
         self.quiet = quiet  # 非 TTY（管道/重定向/cron）默认静默过程输出
         self.data = None  # dict → --json 时以 JSON 打印
         self.meta = {}  # 机器可读元信息（行数/路径等，与人读文本分离）
         # R68：命令成败必须能被 exit code 与 --json 的 ok 同时表达。
         # 原实现 result() 恒 return 0、payload() 恒 "ok": True ⇒
-        # `mpdt push` 推送失败/未验证送达时，脚本和 cron 看到的是**成功**，
-        # 和 R239「SMTP 接受 ≠ 送达」是同一类事故。
+        # 推送失败/未验证送达时，脚本和 cron 看到的是**成功**。
         self.ok = True
 
-    def say(self, msg: Any) -> Any:
+    def say(self, msg: str) -> None:
         """过程输出（进度条性质）。--json 时一律不出（污染管道）；非 TTY 且未强制 → 静默。"""
         if not self.quiet and not JSON_FLAG[0]:
             print(msg)
 
-    def progress(self, i: Any, n: Any, msg: Any) -> Any:
+    def progress(self, i: int, n: int, msg: str) -> None:
         """进度行：[第 N/总] msg（TTY 人读；--json/管道静默）。"""
         self.say(f"  [{i}/{n}] {msg}")
 
-    def out(self, msg: Any, **meta: Any) -> Any:
+    def out(self, msg: str, **meta: Any) -> None:
         """结果输出（人读版）。--json 时不出，改为 JSON。meta 同步进 self.meta。"""
         self.meta.update(meta)
         if not JSON_FLAG[0]:
             print(msg)
 
-    def result(self, ok_msg: Any, data: Any, **meta: Any) -> Any:
-        """统一收尾：data 为本命令的结构化结果（dict/list）。
+    def result(self, ok_msg: str, data: Any, **meta: Any) -> int:
+        """统一收尾：data 为本命令的结构化结果（dict/list），返回退出码。
 
         `ok=False` 必须同时体现在两处：返回值（exit code）和 --json 的 ok 字段。
         只改文案不改退出码 = 调用方（cron / 脚本 / 写后读回）会把失败当成功。
@@ -67,9 +77,8 @@ class _R:
             print(ok_msg)
         return 0 if self.ok else 1
 
-    def payload(self) -> Any:
-        """--json 时的输出体：{ok, cmd, data, meta}——T1 三态在 main() 里以 exit_code 区分，
-        timeout/unknown 不与成功混在同一个 JSON 语义里（写后读回型用户拿 exit code 判定）。"""
+    def payload(self) -> dict[str, Any]:
+        """--json 时的输出体：{ok, cmd, data, meta}——T1 三态在 main() 里以 exit_code 区分。"""
         return {"ok": self.ok, "cmd": CMD_NAME[0], "data": self.data, "meta": self.meta}
 
 
@@ -102,7 +111,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def _ingest_publish_list(
-    r: Any, con: sqlite3.Connection, articles: list[Any], stat_date: str
+    r: _R, con: sqlite3.Connection, articles: list[dict[str, Any]], stat_date: str
 ) -> None:
     """发表列表入库（壳）：R101 的 create_time/publish_date/send_hour 随行入库。"""
     for i, a in enumerate(articles, 1):
@@ -118,7 +127,7 @@ def _ingest_publish_list(
         )
 
 
-def _ingest_datacube(r: Any, con: sqlite3.Connection, rows: list[Any], stat_date: str) -> None:
+def _ingest_datacube(r: _R, con: sqlite3.Connection, rows: list[Any], stat_date: str) -> None:
     """datacube 文章级数据入库（壳）。"""
     for i, row in enumerate(rows, 1):
         r.progress(i, len(rows), f"入库 {row.get('title', '')[:24]}")
@@ -173,7 +182,13 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     )
 
 
-RES: list[Any] = [None]  # main() 里按 TTY 情况构造
+class _SubParsers(Protocol):
+    """argparse 的 subparsers 句柄（只用到 add_parser）—— 不写 argparse 私有类名。"""
+
+    def add_parser(self, name: str, **kwargs: Any) -> argparse.ArgumentParser: ...
+
+
+RES: list[_R] = [_R()]  # main() 按 TTY 情况重建
 
 
 def _usage_error(cmd: str, message: str) -> int:
@@ -191,8 +206,14 @@ def _usage_error(cmd: str, message: str) -> int:
 
 
 def _snapshot_one_detail(
-    s: Any, con: sqlite3.Connection, mid: Any, idx: Any, pub: Any, stat_date: Any, ad_mod: Any
-) -> tuple[dict, str]:
+    s: Session,
+    con: sqlite3.Connection,
+    mid: str,
+    idx: int,
+    pub: str,
+    stat_date: str,
+    ad_mod: ModuleType,
+) -> tuple[dict[str, Any], str]:
     """抓一篇并入库 → (摘要, 一行人读文本)。失败抛异常，由调用方计数。"""
     d = ad_mod.fetch(s, mid, idx, pub)
     metrics = shape.detail_metrics(d, ad_mod.ALL_SCENE)
@@ -200,7 +221,9 @@ def _snapshot_one_detail(
     return shape.detail_view(d, metrics)
 
 
-def _detail_targets(args: argparse.Namespace, s: Any, today: Any, pl_mod: Any) -> Any:
+def _detail_targets(
+    args: argparse.Namespace, s: Session, today: dt.date, pl_mod: Any
+) -> list[tuple[str, int, str]] | None:
     """本次要抓哪几篇 → [(mid, idx, pub)]；参数不合法返回 None。
 
     --msgid 直指一篇；否则按 --recent 天从发表记录里筛（去重、按发表日）。
@@ -218,8 +241,13 @@ def _detail_targets(args: argparse.Namespace, s: Any, today: Any, pl_mod: Any) -
 
 
 def _snapshot_all_details(
-    r: Any, s: Any, con: sqlite3.Connection, targets: Any, stat_date: Any, ad_mod: Any
-) -> tuple[int, int, list]:
+    r: _R,
+    s: Session,
+    con: sqlite3.Connection,
+    targets: list[tuple[str, int, str]],
+    stat_date: str,
+    ad_mod: ModuleType,
+) -> tuple[int, int, list[Any]]:
     """逐篇抓取 + 入库（壳）：单篇失败不打断整批，但会计数并留日志。"""
     ok, fail, items = 0, 0, []
     for t_i, (mid, idx, pub) in enumerate(targets, 1):
@@ -354,7 +382,7 @@ def cmd_push(args: argparse.Namespace) -> int:
     )
 
 
-def _verify_after_send(args: argparse.Namespace, week: Any) -> dict[str, Any]:
+def _verify_after_send(args: argparse.Namespace, week: str) -> dict[str, Any]:
     """推送后的送达回查（壳）：--verify 才查，查不到就说"未验证"，不编。"""
     if not args.verify:
         return {"delivered": None, "note": "未验证（外部收件箱无法回查）"}
@@ -373,9 +401,9 @@ def _verify_after_send(args: argparse.Namespace, week: Any) -> dict[str, Any]:
 # ---- doctor / status：一站式体检与状态查询（UX 打磨，全部只读） ----
 
 
-def _db_readonly_stats(db_path: Any) -> Any:
+def _db_readonly_stats(db_path: str) -> dict[str, Any]:
     """以只读方式打开 db，返回 {exists, rows_by_source, latest_snapshot, db_bytes, error}。"""
-    out = {
+    out: dict[str, Any] = {
         "exists": os.path.exists(db_path),
         "rows_by_source": {},
         "latest_snapshot": None,
@@ -587,13 +615,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     """本地库状态一览（只读）：db 位置 / 各源行数 / 最新快照日 / 库体积。"""
     r = RES[0]
-    db_path = config.DEFAULTS["db_path"]
+    db_path = str(config.DEFAULTS["db_path"])
     cfg_exists = os.path.exists(config.CONFIG_PATH)
     if cfg_exists:
         try:
-            db_path = config.load()["db_path"]
+            db_path = str(config.load()["db_path"])
         except Exception:
-            db_path = config.DEFAULTS["db_path"]  # 解析失败→回退默认路径并照常汇报
+            db_path = str(config.DEFAULTS["db_path"])  # 解析失败→回退默认路径并照常汇报
     st = _db_readonly_stats(db_path)
     db_bytes = st["db_bytes"] or 0
     size_h = render.human_bytes(db_bytes)
@@ -724,7 +752,7 @@ def cmd_export(args: argparse.Namespace) -> int:
     return r.result(msg, meta)
 
 
-def _add_init_parser(sub: Any) -> None:
+def _add_init_parser(sub: _SubParsers) -> None:
     pi = sub.add_parser(
         "init",
         help="初始化本机配置（~/.mpdt/config.json，权限 600）",
@@ -740,7 +768,7 @@ def _add_init_parser(sub: Any) -> None:
     pi.set_defaults(fn=cmd_init)
 
 
-def _add_fetch_parser(sub: Any) -> None:
+def _add_fetch_parser(sub: _SubParsers) -> None:
     pf = sub.add_parser(
         "fetch",
         help="快照发表列表 + datacube 文章数据进本地库",
@@ -774,7 +802,7 @@ def _add_fetch_parser(sub: Any) -> None:
     pf.set_defaults(fn=cmd_fetch)
 
 
-def _add_detail_parser(sub: Any) -> None:
+def _add_detail_parser(sub: _SubParsers) -> None:
     pd = sub.add_parser(
         "detail",
         help="抓单篇渠道页（完读率 + 渠道来源构成，30 天窗口）",
@@ -812,7 +840,7 @@ def _add_detail_parser(sub: Any) -> None:
     pd.set_defaults(fn=cmd_detail)
 
 
-def _add_report_parser(sub: Any) -> None:
+def _add_report_parser(sub: _SubParsers) -> None:
     pr = sub.add_parser(
         "report",
         help="生成周报（Markdown + HTML，含跨源口径对照）",
@@ -825,7 +853,7 @@ def _add_report_parser(sub: Any) -> None:
     pr.set_defaults(fn=cmd_report)
 
 
-def _add_export_parser(sub: Any) -> None:
+def _add_export_parser(sub: _SubParsers) -> None:
     pp = sub.add_parser("push", help="把周报推送给客户（邮件；HTML 内联，失败显式报错）")
     pp.add_argument("--to", required=True, metavar="EMAIL", help="收件人邮箱")
     pp.add_argument("--week", metavar="ISO周", default=None, help="默认本周")
@@ -875,7 +903,7 @@ def _add_export_parser(sub: Any) -> None:
     pe.set_defaults(fn=cmd_export)
 
 
-def _add_metrics_parser(sub: Any) -> None:
+def _add_metrics_parser(sub: _SubParsers) -> None:
     pm = sub.add_parser(
         "metrics",
         help='列出全部指标及口径（查"这个字段是什么口径"）',
@@ -892,7 +920,7 @@ def _add_metrics_parser(sub: Any) -> None:
     pm.set_defaults(fn=cmd_metrics)
 
 
-def _add_doctor_parser(sub: Any) -> None:
+def _add_doctor_parser(sub: _SubParsers) -> None:
     po = sub.add_parser(
         "doctor",
         help="一键体检：配置/Chrome/数据库逐项检查（只读）",
@@ -904,7 +932,7 @@ def _add_doctor_parser(sub: Any) -> None:
     po.set_defaults(fn=cmd_doctor)
 
 
-def _add_status_parser(sub: Any) -> None:
+def _add_status_parser(sub: _SubParsers) -> None:
     ps = sub.add_parser(
         "status",
         help="本地库状态：位置/各源行数/最新快照日/库体积（只读）",
@@ -975,7 +1003,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: Any = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     p = build_parser()
     p.parse_known_args(argv)[0] if argv is not None else None
     args = p.parse_args(argv)
@@ -984,7 +1012,7 @@ def main(argv: Any = None) -> int:
     CMD_NAME[0] = args.cmd
     RES[0] = _R(quiet=not sys.stdout.isatty() and not args.json)
     try:
-        rc = args.fn(args)
+        rc = int(args.fn(args))
         if args.json and rc == 0:
             print(json.dumps(RES[0].payload(), ensure_ascii=False))
         return rc

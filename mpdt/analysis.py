@@ -64,15 +64,15 @@ def title_family(title: str) -> str:
     return t[:18] if t else "(无标题)"
 
 
-def group_rows(rows: Any, hit_rec: int = HIT_REC) -> dict[str, Any]:
+def group_rows(rows: list[dict[str, Any]], hit_rec: int = HIT_REC) -> dict[str, Any]:
     """按内容家族分组，统计组内分布，并识别「孤峰」。
 
     返回 {family: {n, rec_med, rec_max, hit_n, hit_rate, spike, spike_max, spike_titles, read_med}}
     - spike: 该组内只有少数篇吃到推荐，但最高值够高 ⇒ 形态能爆，不是形态不吃推荐
     """
-    fam = {}
+    fam: dict[str, list[Any]] = {}
     for r in rows:
-        fam.setdefault(title_family(r.get("title")), []).append(r)
+        fam.setdefault(title_family(str(r.get("title") or "")), []).append(r)
 
     out = {}
     for name, rs in fam.items():
@@ -96,7 +96,9 @@ def group_rows(rows: Any, hit_rec: int = HIT_REC) -> dict[str, Any]:
     return out
 
 
-def family_verdict(rows: Any, hit_rec: int = HIT_REC, min_n: int = 2) -> dict[str, Any]:
+def family_verdict(
+    rows: list[dict[str, Any]], hit_rec: int = HIT_REC, min_n: int = 2
+) -> dict[str, Any]:
     """家族级判定：返回 verdict + 可执行动作。
 
     verdict:

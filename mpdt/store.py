@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import os
 import sqlite3
+from collections.abc import Sequence
 from typing import Any
 
 from . import metrics as metrics_mod
@@ -40,12 +41,12 @@ def upsert(
     con: sqlite3.Connection,
     source: str,
     stat_date: str,
-    appmsgid: Any,
-    itemidx: Any,
-    title: Any,
+    appmsgid: str | int,
+    itemidx: int | str,
+    title: str,
     metrics: dict[str, Any],
-    fetched_at: Any = None,
-) -> Any:
+    fetched_at: str | None = None,
+) -> None:
     fetched_at = fetched_at or dt.datetime.now().astimezone().isoformat(timespec="seconds")
     con.execute(
         "INSERT INTO snapshots VALUES (?,?,?,?,?,?,?) "
@@ -63,7 +64,7 @@ def upsert(
     )
 
 
-def log_run(con: sqlite3.Connection, cmd: str, ok: bool, detail: str = "") -> Any:
+def log_run(con: sqlite3.Connection, cmd: str, ok: bool, detail: str = "") -> None:
     con.execute(
         "INSERT INTO journal(ran_at, cmd, ok, detail) VALUES (?,?,?,?)",
         (dt.datetime.now().astimezone().isoformat(timespec="seconds"), cmd, int(ok), detail),
@@ -71,7 +72,7 @@ def log_run(con: sqlite3.Connection, cmd: str, ok: bool, detail: str = "") -> An
     con.commit()
 
 
-def csv_metric_meta(source: str, keys: Any) -> list[Any]:
+def csv_metric_meta(source: str, keys: Sequence[str]) -> list[list[str]]:
     """CSV 各指标列的口径元数据行（源字段, 所属源, 窗口, 分母, 单位, 是否跨源可比）。
 
     口径唯一来源 = metrics.py 注册表（CONCEPTS / META_FIELDS / DEPRECATED）；
@@ -160,7 +161,7 @@ def _concept_series_count(reg_key: str) -> int:
 def _meta_kind(reg_key: str) -> str:
     """返回元数据键的 kind（snapshot/derived/structured）或 ''（指标概念）。"""
     if reg_key in metrics_mod.META_FIELDS:
-        return metrics_mod.META_FIELDS[reg_key].get("kind", "")
+        return str(metrics_mod.META_FIELDS[reg_key].get("kind", ""))
     return ""
 
 

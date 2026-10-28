@@ -96,7 +96,7 @@ def extract_cgi_data(html: str) -> Any:
 
 
 def main() -> int:
-    targets = []
+    targets: list[tuple[str, int, str]] = []
     for a in sys.argv[1:]:
         mid, idx, pub = a.split(":")
         targets.append((mid, int(idx), pub))
@@ -128,16 +128,16 @@ def main() -> int:
             if m.get("id") == mid_n[0]:
                 return m.get("result", {}).get("result", {}).get("value")
 
-    tok = re.search(r"token=(\d+)", page[0].get("url", ""))
-    tok = tok.group(1) if tok else ""
+    tok_m = re.search(r"token=(\d+)", page[0].get("url", ""))
+    tok = tok_m.group(1) if tok_m else ""
     if not tok:
         sys.exit("no token in tab url")
     print("token:", tok[:4] + "...")
 
-    for mid, idx, pub in targets:
+    for t_mid, t_idx, t_pub in targets:
         js = f"""
         (async () => {{
-          const res = await fetch('/misc/appmsganalysis?action=detailpage&msgid={mid}_{idx}&publish_date={pub}&type=int&pageVersion=1&token={tok}&lang=zh_CN', {{credentials:'include'}});
+          const res = await fetch('/misc/appmsganalysis?action=detailpage&msgid={t_mid}_{t_idx}&publish_date={t_pub}&type=int&pageVersion=1&token={tok}&lang=zh_CN', {{credentials:'include'}});
           const t = await res.text();
           return res.status + '|' + t;
         }})()"""
@@ -145,15 +145,18 @@ def main() -> int:
         status, _, html = raw.partition("|")
         fx, parts = extract_cgi_data(html)
         if status != "200" or fx is None:
-            print(f"SKIP {mid}_{idx} status={status} parsed={fx is not None} len={len(html)}")
+            print(f"SKIP {t_mid}_{t_idx} status={status} parsed={fx is not None} len={len(html)}")
             continue
-        path = os.path.join(OUT, f"article_detail_{mid}_{idx}.html")
+        path = os.path.join(OUT, f"article_detail_{t_mid}_{t_idx}.html")
         with open(path, "w") as f:
             f.write(fx)
         title_hint = parts["articleData"].get("title", "")[:18]
         read_uv = (parts["articleData"].get("article_data_new") or {}).get("read_uv")
-        print(f"OK {mid}_{idx} ({pub}) -> {len(fx)} bytes  title={title_hint!r}  read_uv={read_uv}")
+        print(
+            f"OK {t_mid}_{t_idx} ({t_pub}) -> {len(fx)} bytes  title={title_hint!r}  read_uv={read_uv}"
+        )
         time.sleep(2)
+    return 0
 
 
 if __name__ == "__main__":

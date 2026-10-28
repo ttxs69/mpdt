@@ -73,7 +73,7 @@ _TIERS = (
 _CONTACT = "ws.kevin@qq.com"
 
 
-def render_next_step(adv: dict[str, Any]) -> str:
+def render_next_step(adv: Any) -> str:
     """返回周报里的「下一步」Markdown 节；不适用时返回空串。"""
     if not isinstance(adv, dict):
         return ""

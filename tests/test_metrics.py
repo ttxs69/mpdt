@@ -7,11 +7,19 @@ series 查找 / 自动配对 / 文档生成。
 import os
 import sys
 import unittest
+from typing import Any
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from mpdt import metrics  # noqa: E402
+
+
+def _s(field: str, source: str | None = None) -> tuple[str, str, dict[str, Any]]:
+    """find_series 找不到时返回 None；测试里几乎每次都要下标取值，断言一次省得写二十遍。"""
+    hit = metrics.find_series(field, source)
+    assert hit is not None, f"find_series({field!r}, {source!r}) 应有命中"
+    return hit
 
 
 class TestConceptTreeIntegrity(unittest.TestCase):
@@ -57,7 +65,7 @@ class TestConceptTreeIntegrity(unittest.TestCase):
 
     def test_field_unique_within_source_in_concepts(self) -> None:
         # CONCEPTS 内部同源 field 唯一（find_series 不歧义）
-        seen = {}
+        seen: dict[Any, Any] = {}
         for _, _, s in metrics.all_series():
             key = (s["source"], s["field"])
             self.assertNotIn(key, seen, f"同源内 field 应唯一: {key} (另有 {seen.get(key)})")
@@ -109,7 +117,7 @@ class TestConceptTreeIntegrity(unittest.TestCase):
 
     def test_old_like_num_in_deprecated(self) -> None:
         # old_like_num 标 deprecated，保留登记但不在 CONCEPTS
-        hit = metrics.find_series(field="old_like_num")
+        hit = _s(field="old_like_num")
         self.assertEqual(hit[0], "old_like_num")
         # 不在 all_series 流水线（被 deprecated 排除）
         all_keys = [(c, k) for c, k, _ in metrics.all_series()]
@@ -117,24 +125,24 @@ class TestConceptTreeIntegrity(unittest.TestCase):
 
     def test_zaikan_cnt_is_its_own_concept(self) -> None:
         # zaikan_cnt 拆出独立概念「在看」(wow)，不再混入 like
-        a = metrics.find_series(field="zaikan_cnt")
+        a = _s(field="zaikan_cnt")
         self.assertEqual(a[0], "wow")
-        like = metrics.find_series(field="like_cnt")
+        like = _s(field="like_cnt")
         self.assertEqual(like[0], "like")
         # 不再同概念
         self.assertNotEqual(a[0], like[0])
 
     def test_listen_split_into_two_concepts(self) -> None:
         # listen_uv/listen_pv 是两个不同概念，不是同概念两 series
-        uv = metrics.find_series(field="listen_uv")
-        pv = metrics.find_series(field="listen_pv")
+        uv = _s(field="listen_uv")
+        pv = _s(field="listen_pv")
         self.assertEqual(uv[0], "listen_people")
         self.assertEqual(pv[0], "listen_plays")
         self.assertNotEqual(uv[0], pv[0])
 
     def test_two_finish_read_rates_belong_to_same_concept(self) -> None:
-        a = metrics.find_series(field="finish_read_rate")
-        b = metrics.find_series(field="finished_read_pv_ratio")
+        a = _s(field="finish_read_rate")
+        b = _s(field="finished_read_pv_ratio")
         self.assertIsNotNone(a)
         self.assertIsNotNone(b)
         self.assertEqual(a[0], b[0])
@@ -144,7 +152,7 @@ class TestConceptTreeIntegrity(unittest.TestCase):
 
 class TestFindSeries(unittest.TestCase):
     def test_by_field_without_source(self) -> None:
-        hit = metrics.find_series(field="read_num")
+        hit = _s(field="read_num")
         self.assertIsNotNone(hit)
         cname, _skey, s = hit
         self.assertEqual(s["source"], "publish_list")
@@ -154,8 +162,8 @@ class TestFindSeries(unittest.TestCase):
         self.assertIsNone(metrics.find_series(field="no_such_field"))
 
     def test_with_source_disambiguates(self) -> None:
-        a = metrics.find_series(field="finish_read_rate", source="datacube_article")
-        b = metrics.find_series(field="finished_read_pv_ratio", source="article_detail")
+        a = _s(field="finish_read_rate", source="datacube_article")
+        b = _s(field="finished_read_pv_ratio", source="article_detail")
         self.assertEqual(a[1], "dc7")
         self.assertEqual(b[1], "ad30")
 
@@ -164,7 +172,7 @@ class TestFindSeries(unittest.TestCase):
 
     def test_finds_meta_field(self) -> None:
         # 元数据字段也能 find_series
-        hit = metrics.find_series(field="refdate", source="datacube_article")
+        hit = _s(field="refdate", source="datacube_article")
         self.assertIsNotNone(hit)
         self.assertEqual(hit[0], "refdate")
 
@@ -175,7 +183,7 @@ class TestFindSeries(unittest.TestCase):
         ('refdate','ad30',<dc7 的 series>) —— CONCEPTS 段跑完后 `skey` 还留着
         'ad30'，META 段用 `_skey` 接收循环变量却 `return skey`。
         """
-        hit = metrics.find_series(field="refdate", source="datacube_article")
+        hit = _s(field="refdate", source="datacube_article")
         self.assertIsNotNone(hit)
         self.assertEqual(hit[1], "dc7", "refdate 的 series_key 不该是 CONCEPTS 段的残留值")
         # 顺带确认这个字段没有第二源（上面的断言才有意义）
@@ -193,14 +201,14 @@ class TestFindSeries(unittest.TestCase):
             *(x for x in metrics._meta_series()),
             *(x for x in metrics._deprecated_series()),
         ]:
-            hit = metrics.find_series(field=s["field"], source=s["source"])
+            hit = _s(field=s["field"], source=s["source"])
             self.assertIsNotNone(hit, f"{name}.{skey} 查不到")
             self.assertEqual(hit[1], skey, f"{name}.{skey}: find_series 返回 series_key={hit[1]!r}")
             checked += 1
         self.assertGreater(checked, 10)
 
     def test_finds_deprecated_field(self) -> None:
-        hit = metrics.find_series(field="old_like_num", source="publish_list")
+        hit = _s(field="old_like_num", source="publish_list")
         self.assertIsNotNone(hit)
         self.assertEqual(hit[0], "old_like_num")
 

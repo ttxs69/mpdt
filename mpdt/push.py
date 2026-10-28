@@ -19,6 +19,7 @@ import os
 import smtplib
 import sqlite3
 import ssl
+from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
 
@@ -93,7 +94,7 @@ def _sent_db_path() -> Path:
     return Path(d) / "pushed.sqlite3"
 
 
-def _init_sent(conn: Any) -> Any:
+def _init_sent(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE TABLE IF NOT EXISTS pushed ("
         " week TEXT NOT NULL, recipient TEXT NOT NULL, md_path TEXT,"
@@ -113,7 +114,7 @@ def already_pushed(week: str, recipient: str) -> bool:
         conn.close()
 
 
-def _mark_pushed(conn: Any, week: Any, recipient: Any, md_path: Any) -> Any:
+def _mark_pushed(conn: sqlite3.Connection, week: str, recipient: str, md_path: str) -> None:
     from datetime import datetime
 
     conn.execute(
@@ -150,7 +151,8 @@ def _imap_recent_headers(
         raws = []
         for i in reversed(ids[-limit:]):
             _t, d = imap.fetch(i, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO)])")
-            raws.append(d[0][1])
+            item = d[0]
+            raws.append(item[1] if isinstance(item, tuple) else item)
         return raws
     finally:
         with contextlib.suppress(Exception):
@@ -309,7 +311,7 @@ def _assert_allowed(recipient: str, week: str, cfg: dict[str, Any], allow_unlist
     _log_unlisted(recipient, week)
 
 
-def _deliver(cfg: dict[str, Any], msg: Any) -> None:
+def _deliver(cfg: dict[str, Any], msg: EmailMessage) -> None:
     """真正投递（壳）：认证/网络失败翻译成可操作的 PushError，不静默。"""
     try:
         ctx = ssl.create_default_context()

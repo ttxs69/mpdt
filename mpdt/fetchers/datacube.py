@@ -6,11 +6,16 @@
 口径：仅统计发表后 7 天内数据；total_pv 只算送达（群发）阅读（README 口径表）。
 """
 
+from __future__ import annotations
+
 import contextlib
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..errors import UpstreamError
+
+if TYPE_CHECKING:
+    from ..session import Session
 
 QUERY_JS = """
 (async () => {
@@ -60,7 +65,7 @@ def parse_tmpl17(raw: str) -> list[Any]:
     return [_coerce_row(r) for r in rows]
 
 
-def fetch(session: Any, begin: str, end: str, size: Any = 40) -> list[Any]:
+def fetch(session: Session, begin: str, end: str, size: int = 40) -> list[Any]:
     """begin/end: YYYYMMDD（Asia/Shanghai 口径，调用方转换）。"""
     raw = session.fetch_text(
         QUERY_JS % (begin, end, size, session.fingerprint, session.ensure_token())

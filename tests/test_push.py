@@ -5,6 +5,7 @@
 """
 
 import os
+import smtplib
 import sys
 import tempfile
 import unittest
@@ -19,7 +20,7 @@ from mpdt import push
 class _FakeSMTP:
     """最小 SMTP 替身：记录 send_message 的调用。"""
 
-    sent: ClassVar[list] = []
+    sent: ClassVar[list[Any]] = []
     fail: str | None = None
 
     def __init__(self, host: Any, port: Any, context: Any = None, timeout: Any = None) -> None:
@@ -33,15 +34,11 @@ class _FakeSMTP:
 
     def login(self, u: Any, p: Any) -> Any:
         if _FakeSMTP.fail == "auth":
-            import smtplib
-
             raise smtplib.SMTPAuthenticationError(535, b"bad creds")
         return (235, b"ok")
 
     def send_message(self, msg: Any) -> Any:
         if _FakeSMTP.fail == "net":
-            import smtplib
-
             raise smtplib.SMTPServerDisconnected("disconnected")
         _FakeSMTP.sent.append(msg)
         return {}
@@ -86,11 +83,11 @@ class PushTestBase(unittest.TestCase):
         )
         _FakeSMTP.sent = []
         _FakeSMTP.fail = None
-        self._orig = push.smtplib.SMTP_SSL
-        push.smtplib.SMTP_SSL = _FakeSMTP
+        self._orig = smtplib.SMTP_SSL
+        setattr(smtplib, "SMTP_SSL", _FakeSMTP)  # noqa: B010
 
     def tearDown(self) -> Any:
-        push.smtplib.SMTP_SSL = self._orig
+        setattr(smtplib, "SMTP_SSL", self._orig)  # noqa: B010
         push._sent_db_path = self._p1
         push._allowlist_path = self._p2
         push._log_unlisted = self._p3

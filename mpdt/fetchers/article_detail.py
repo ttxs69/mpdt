@@ -14,10 +14,15 @@
 按渠道分别计数，占比之和可 >100%（仅「全部」去重）**；本页仅统计发表后 30 天内数据。
 """
 
+from __future__ import annotations
+
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..errors import UpstreamError
+
+if TYPE_CHECKING:
+    from ..session import Session
 
 DETAIL_JS = """
 (async () => {
@@ -194,7 +199,7 @@ def channel_breakdown(
         lo, hi = d0.isoformat(), (d0 + dt.timedelta(days=days - 1)).isoformat()
 
     total = 0
-    agg = {}
+    agg: dict[Any, Any] = {}
     for r in channels:
         rd = _norm(r.get("ref_date"))
         if lo and not (lo <= rd <= hi):
@@ -220,7 +225,7 @@ def channel_breakdown(
     return out
 
 
-def fetch(session: Any, appmsgid: Any, itemidx: Any, publish_date: Any) -> dict[str, Any]:
+def fetch(session: Session, appmsgid: str, itemidx: int, publish_date: str) -> dict[str, Any]:
     """publish_date: YYYY-MM-DD（页面 URL 参数口径）。"""
     raw = session.fetch_text(
         DETAIL_JS % (appmsgid, int(itemidx), publish_date, session.ensure_token())

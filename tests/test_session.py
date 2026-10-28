@@ -19,8 +19,10 @@
 
 import json
 import sys
+import time
 import types
 import unittest
+import urllib.request
 from typing import Any
 from unittest import mock
 
@@ -83,14 +85,14 @@ def _fake_websocket(ws: _FakeWS) -> types.ModuleType:
 class SessionConnectTests(unittest.TestCase):
     def test_connect_is_idempotent(self) -> None:
         s = session.Session(_cfg())
-        s._ws = "already"  # type: ignore[assignment]
+        s._ws = "already"
         s._connect()  # 不应再走 urlopen
         self.assertEqual(s._ws, "already")
 
     def test_connect_cdp_unreachable(self) -> None:
         s = session.Session(_cfg())
         with (
-            mock.patch.object(session.urllib.request, "urlopen", side_effect=OSError("refused")),
+            mock.patch.object(urllib.request, "urlopen", side_effect=OSError("refused")),
             self.assertRaises(AuthError) as ctx,
         ):
             s._connect()
@@ -100,7 +102,7 @@ class SessionConnectTests(unittest.TestCase):
         s = session.Session(_cfg())
         tabs = [{"type": "page", "url": "https://example.com"}]
         with (
-            mock.patch.object(session.urllib.request, "urlopen", return_value=_Resp(tabs)),
+            mock.patch.object(urllib.request, "urlopen", return_value=_Resp(tabs)),
             self.assertRaises(AuthError) as ctx,
         ):
             s._connect()
@@ -117,7 +119,7 @@ class SessionConnectTests(unittest.TestCase):
         ]
         ws = _FakeWS(frames=[{"id": 1, "result": {}}])
         with (
-            mock.patch.object(session.urllib.request, "urlopen", return_value=_Resp(tabs)),
+            mock.patch.object(urllib.request, "urlopen", return_value=_Resp(tabs)),
             mock.patch.dict(sys.modules, {"websocket": _fake_websocket(ws)}),
         ):
             s._connect()
@@ -135,7 +137,7 @@ class SessionCmdTests(unittest.TestCase):
                 {"id": 1, "result": {"ok": True}},
             ]
         )
-        s._ws = ws  # type: ignore[assignment]
+        s._ws = ws
         out = s._cmd("Page.enable")
         self.assertEqual(out, {"id": 1, "result": {"ok": True}})
         self.assertEqual(ws.sent[0]["params"], {})
@@ -143,21 +145,21 @@ class SessionCmdTests(unittest.TestCase):
 
     def test_eval_unwraps_value(self) -> None:
         s = session.Session(_cfg())
-        s._ws = _FakeWS(frames=[{"id": 1, "result": {"result": {"value": "hello"}}}])  # type: ignore[assignment]
+        s._ws = _FakeWS(frames=[{"id": 1, "result": {"result": {"value": "hello"}}}])
         self.assertEqual(s._eval("1+1"), "hello")
 
     def test_eval_missing_value_is_none(self) -> None:
         s = session.Session(_cfg())
-        s._ws = _FakeWS(frames=[{"id": 1, "result": {}}])  # type: ignore[assignment]
+        s._ws = _FakeWS(frames=[{"id": 1, "result": {}}])
         self.assertIsNone(s._eval("x"))
 
 
 class RefreshTokenTests(unittest.TestCase):
     def _patched(self, ws: _FakeWS, tabs: list[dict[str, Any]]) -> Any:
         return (
-            mock.patch.object(session.urllib.request, "urlopen", return_value=_Resp(tabs)),
+            mock.patch.object(urllib.request, "urlopen", return_value=_Resp(tabs)),
             mock.patch.dict(sys.modules, {"websocket": _fake_websocket(ws)}),
-            mock.patch.object(session.time, "sleep", return_value=None),
+            mock.patch.object(time, "sleep", return_value=None),
         )
 
     def test_refresh_uses_cfg_token_and_reads_href(self) -> None:
@@ -262,9 +264,9 @@ class FetchTextTests(unittest.TestCase):
 class ThrottleTests(unittest.TestCase):
     def test_throttle_sleeps_when_interval_not_elapsed(self) -> None:
         s = session.Session(_cfg(request_interval=10.0))
-        s._last_req = session.time.time()  # 刚刚请求过 ⇒ 必须等
+        s._last_req = time.time()  # 刚刚请求过 ⇒ 必须等
         slept: list[float] = []
-        with mock.patch.object(session.time, "sleep", side_effect=slept.append):
+        with mock.patch.object(time, "sleep", side_effect=slept.append):
             s.throttle()
         self.assertEqual(len(slept), 1)
         self.assertGreater(slept[0], 0)
@@ -273,7 +275,7 @@ class ThrottleTests(unittest.TestCase):
         s = session.Session(_cfg(request_interval=0.0))
         s._last_req = 0.0
         slept: list[float] = []
-        with mock.patch.object(session.time, "sleep", side_effect=slept.append):
+        with mock.patch.object(time, "sleep", side_effect=slept.append):
             s.throttle()
         self.assertEqual(slept, [])
 

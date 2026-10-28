@@ -22,12 +22,12 @@ class Session:
         self.token = cfg.get("token") or ""
         self.fingerprint = cfg.get("fingerprint") or ""
         self._last_req = 0.0
-        self._ws = None
+        self._ws: Any = None
         self._mid = 0
         self._tab_url = ""
 
     # ---- CDP 基础 ----
-    def _connect(self) -> Any:
+    def _connect(self) -> None:
         if self._ws is not None:
             return
         import websocket
@@ -49,16 +49,16 @@ class Session:
         self._tab_url = page[0].get("url", "")
         self._cmd("Page.enable")
 
-    def _cmd(self, method: Any, **params: Any) -> Any:
+    def _cmd(self, method: str, **params: Any) -> dict[str, Any]:
         self._mid += 1
         self._ws.send(json.dumps({"id": self._mid, "method": method, "params": params}))
         self._ws.settimeout(60)
         while True:
             m = json.loads(self._ws.recv())
             if m.get("id") == self._mid:
-                return m
+                return dict(m)
 
-    def _eval(self, js: Any) -> Any:
+    def _eval(self, js: str) -> Any:
         r = self._cmd("Runtime.evaluate", expression=js, returnByValue=True, awaitPromise=True)
         return r.get("result", {}).get("result", {}).get("value")
 
@@ -87,15 +87,15 @@ class Session:
         return self.token
 
     # ---- 页内 fetch（登录态 cookie 自动附带）----
-    def fetch_text(self, js: Any) -> str:
+    def fetch_text(self, js: str) -> str:
         self._connect()
         self.throttle()
         v = self._eval(js)
         if v is None or v == "":
             raise AuthError("页面内 fetch 无返回（tab 可能已失效，重跑一次）")
-        return v
+        return str(v)
 
-    def throttle(self) -> Any:
+    def throttle(self) -> None:
         wait = self.cfg.get("request_interval", 1.0) - (time.time() - self._last_req)
         if wait > 0:
             time.sleep(wait)

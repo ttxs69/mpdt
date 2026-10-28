@@ -18,6 +18,7 @@ GATE = os.path.join(REPO, "tools", "version_gate.py")
 
 def load_gate() -> Any:
     spec = importlib.util.spec_from_file_location("version_gate", GATE)
+    assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -110,6 +111,7 @@ class VersionGateTests(unittest.TestCase):
         v2 = _re.search(r"""__version__\s*=\s*['"]([^'"]+)['"]""", it)
         self.assertIsNotNone(v1, "pyproject.toml 里找不到 version")
         self.assertIsNotNone(v2, "mpdt/__init__.py 里找不到 __version__")
+        assert v1 is not None and v2 is not None
         self.assertEqual(
             v1.group(1), v2.group(1), "pyproject 与 __init__ 版本不一致 ⇒ gate 报错会误导"
         )

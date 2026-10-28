@@ -185,8 +185,8 @@ def to_advice_rows(raw_rows: list[Any], only_dates: set[Any] | None = None) -> l
 
 
 def fetch_window(
-    today: Any, backfill: int | None, from_date: str | None, to_date: str | None
-) -> Any:
+    today: dt.date, backfill: int | None, from_date: str | None, to_date: str | None
+) -> tuple[dt.date, dt.date]:
     """本次拉取的 (begin, end) 日期区间（纯）。
 
     默认 T+1：昨天是最新可得日。--from/--to 显式覆盖，--backfill N 回补 N 天。
@@ -212,7 +212,7 @@ DATACUBE_METRIC_KEYS = (
 )
 
 
-def send_hour_of(create_time: Any) -> str | None:
+def send_hour_of(create_time: object) -> str | None:
     """群发时刻（北京时间 HH:MM）；上游缺 create_time 时返回 None，不虚构。"""
     if not isinstance(create_time, int) or create_time <= 0:
         return None
@@ -237,7 +237,7 @@ def datacube_metrics(row: dict[str, Any]) -> dict[str, Any]:
     return {k: row.get(k) for k in DATACUBE_METRIC_KEYS}
 
 
-def mail_subject(raw: Any) -> str:
+def mail_subject(raw: bytes | str) -> str:
     """IMAP 头字节 → 主题字符串（纯）。RFC2047 编码头在这里解码。"""
     if isinstance(raw, str):
         raw = raw.encode()

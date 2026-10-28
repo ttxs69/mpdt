@@ -7,7 +7,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -21,6 +21,8 @@ from mpdt.fetchers.publish_list import parse_publish_list  # noqa: E402
 
 
 class TestPublishList(unittest.TestCase):
+    raw: str
+
     @classmethod
     def setUpClass(cls: Any) -> Any:
         cls.raw = Path(os.path.join(FIX, "publish_list.json")).read_text(encoding="utf-8")
@@ -40,10 +42,12 @@ class TestPublishList(unittest.TestCase):
         by_id = {a["appmsgid"]: a for a in out["articles"]}
         a = by_id.get(2247485215)
         self.assertIsNotNone(a, "fixture 应含贴图样本 2247485215")
+        assert a is not None
         self.assertEqual(a["publish_date"], "2026-10-16")
         self.assertEqual(a["create_time"], 1792145145)
         b = by_id.get(2247485156)
         self.assertIsNotNone(b, "fixture 应含贴图样本 2247485156")
+        assert b is not None
         self.assertEqual(b["publish_date"], "2026-10-16")
 
     def test_structure_change_raises_upstream_4(self) -> None:
@@ -57,6 +61,8 @@ class TestPublishList(unittest.TestCase):
 
 
 class TestDatacube(unittest.TestCase):
+    raw: str
+
     @classmethod
     def setUpClass(cls: Any) -> Any:
         cls.raw = Path(os.path.join(FIX, "datacube_tmpl17.json")).read_text(encoding="utf-8")
@@ -76,6 +82,11 @@ class TestDatacube(unittest.TestCase):
 
 class TestArticleDetail(unittest.TestCase):
     """单篇渠道页（FR3②）：fixture 为 R28 真实录制（2026-10-17）。"""
+
+    p_w42: str
+    p_093: str
+    w42: dict[str, Any]
+    a093: dict[str, Any]
 
     @classmethod
     def setUpClass(cls: Any) -> Any:
@@ -265,7 +276,7 @@ class TestStage6JsonTtyInterrupt(unittest.TestCase):
         from mpdt import cli
 
         orig = cli.cmd_report
-        cli.cmd_report = lambda a: (_ for _ in ()).throw(KeyboardInterrupt)
+        cli.cmd_report = cast(Any, lambda a: (_ for _ in ()).throw(KeyboardInterrupt))
         try:
             rc = cli.main(["report"])
         finally:

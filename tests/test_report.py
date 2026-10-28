@@ -144,7 +144,7 @@ class TestCrossSourceTable(ReportBase):
     def test_returns_one_block_per_multi_series_concept(self) -> None:
         blocks = report.cross_source_table(self.con)
         # 每概念至多一块（不再多张两两对照表）
-        seen = {}
+        seen: dict[Any, Any] = {}
         for b in blocks:
             self.assertNotIn(b["concept"], seen, "{} 应只有一块".format(b["concept"]))
             seen[b["concept"]] = b

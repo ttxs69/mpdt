@@ -29,8 +29,8 @@ def test_insufficient_does_not_render() -> None:
 
 def test_invalid_input() -> None:
     # 运行时防御：调用方传进来的可能不是 dict（cron / 外部脚本）
-    assert render_next_step(None) == ""  # type: ignore[arg-type]
-    assert render_next_step("x") == ""  # type: ignore[arg-type]
+    assert render_next_step(None) == ""
+    assert render_next_step("x") == ""
 
 
 def test_no_promises() -> None:

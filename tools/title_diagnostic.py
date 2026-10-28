@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 DB_DEFAULT = "/home/ubuntu/.mpdt/mpdt.sqlite3"
 RULES_PATH = (
@@ -218,6 +218,7 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         print(render_md(result, args.days))
+    return 0
 
 
 if __name__ == "__main__":

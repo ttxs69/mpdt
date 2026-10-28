@@ -72,9 +72,15 @@ echo "   gate green"
 # ── 2. prepare ──────────────────────────────────────────────────────────────
 if [ "$DRY_RUN" = "1" ]; then
   say "2. dry run — building ${CURRENT} without publishing"
+  # 发布工具必须在 requirements-dev 里，不能在发布过程中 pip install：
+  # 中途装包会让「本地能发、CI 不能发」这种差异永远发现不了。
+  "$PY" -c "import build, twine" 2>/dev/null || {
+    echo "✗ 缺发布依赖（build / twine）。先跑：$PY -m pip install -r requirements-dev.txt" >&2
+    echo "  这两个包在 requirements-dev.in 里，别在发布途中临时装。" >&2
+    exit 2
+  }
   rm -rf dist build
   "$PY" -m build 2>&1 | tail -5
-  "$PY" -m pip install -q --upgrade "twine==7.0.0" 2>&1 | tail -2
   "$PY" -m twine check --strict dist/*
   "$PY" tools/verify_artifact.py dist --expect-version "$CURRENT"
   say "2b. what would be published"

@@ -2,3 +2,6 @@ ruff>=0.17.2
 mypy>=1.15
 pytest>=8.3
 pytest-cov>=6.2
+# 发布路径：build 产 wheel/sdist，twine 校验元数据（release.sh 需要）
+build>=1.2
+twine>=6.0

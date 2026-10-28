@@ -17,8 +17,10 @@ import os
 import smtplib
 import sqlite3
 import ssl
-from email.message import EmailMessage
 from pathlib import Path
+from typing import Any
+
+from . import render
 
 # 必填项（缺任何一个都不能发信）
 ENV_KEYS = {
@@ -35,7 +37,7 @@ class PushError(RuntimeError):
     """推送失败。消息里必须带「下一步怎么做」，不能只说失败了。"""
 
 
-def _load_env() -> dict:
+def _load_env() -> dict[str, Any]:
     """从 MP_DOTENV 指向的文件（默认 ~/.hermes/.env）补齐缺失的凭据。
 
     允许复用现有邮件凭据（EMAIL_SMTP_*），避免客户多配一套。
@@ -63,7 +65,7 @@ def _load_env() -> dict:
     return env
 
 
-def _cfg() -> dict:
+def _cfg() -> dict[str, Any]:
     env = _load_env()
     missing = [k for k in ENV_KEYS.values() if not env.get(k)]
     if missing:
@@ -141,7 +143,7 @@ def verify_delivery(
     imap_user: str = "",
     imap_password: str = "",
     timeout_s: int = 60,
-) -> dict:
+) -> dict[str, Any]:
     """用 IMAP 回查收件箱，确认邮件**真的到了对方**。
 
     为什么需要：SMTP 返回成功只代表"服务器收下了这封信"——
@@ -203,7 +205,7 @@ def _allowlist_path() -> Path:
     return Path(d) / "push_allowlist.json"
 
 
-def _load_allowlist() -> list:
+def _load_allowlist() -> list[Any]:
     """允许接收**本账号数据**的收件人白名单。
 
     R239 事故：拿真实冷线索的邮箱做投递自测，把我们号的内容结构、
@@ -225,7 +227,7 @@ def _load_allowlist() -> list:
     return [str(x).strip().lower() for x in allow if str(x).strip()]
 
 
-def _self_addresses(cfg: dict) -> set:
+def _self_addresses(cfg: dict[str, Any]) -> set[Any]:
     """发件人自己 / 账号所有者本人的地址——这些永远允许（自测收件箱）。"""
     addrs = set()
     for k in ("EMAIL_ADDRESS", "MPDT_SMTP_USER", "MPDT_MAIL_FROM"):
@@ -252,7 +254,7 @@ def _self_addresses(cfg: dict) -> set:
     return addrs
 
 
-def check_recipient(recipient: str, cfg: dict) -> None:
+def check_recipient(recipient: str, cfg: dict[str, Any]) -> None:
     """收件人未授权 ⇒ 抛 PushError。
 
     这是**硬门**：不在白名单、也不是发件人自己，就不能收到本账号数据。
@@ -290,6 +292,37 @@ def _log_unlisted(recipient: str, week: str) -> None:
         )
 
 
+def _assert_allowed(recipient: str, week: str, cfg: dict[str, Any], allow_unlisted: bool) -> None:
+    """外发前的授权判定：白名单/本人放行；--allow-unlisted 放宽但必须留痕。"""
+    if not allow_unlisted:
+        check_recipient(recipient, cfg)
+        return
+    addr = (recipient or "").strip().lower()
+    if addr in _self_addresses(cfg) or addr in _load_allowlist():
+        return
+    # --allow-unlisted 只放宽一次，且必须留痕
+    _log_unlisted(recipient, week)
+
+
+def _deliver(cfg: dict[str, Any], msg) -> None:
+    """真正投递（壳）：认证/网络失败翻译成可操作的 PushError，不静默。"""
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP_SSL(cfg["host"], cfg["port"], context=ctx, timeout=30) as s:
+            s.login(cfg["user"], cfg["password"])
+            s.send_message(msg)
+    except smtplib.SMTPAuthenticationError as e:
+        raise PushError(
+            "认证失败：{}。请检查 {} / {} 是否为有效授权码。".format(
+                e, ENV_KEYS["user"], ENV_KEYS["password"]
+            )
+        ) from e
+    except (smtplib.SMTPException, OSError) as e:
+        raise PushError(
+            f"推送失败：{type(e).__name__}: {e}（网络或服务端问题，稍后重试；本工具不会静默吞错）"
+        ) from e
+
+
 def send_report(
     md_path: str,
     recipient: str,
@@ -298,7 +331,7 @@ def send_report(
     body_md: str = "",
     force: bool = False,
     allow_unlisted: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """把周报发给 recipient。返回 {'ok':True,'recipient':...,'bytes':n}。
 
     失败抛 PushError（带修复指引），不静默。
@@ -309,13 +342,7 @@ def send_report(
         raise PushError(f"周报文件不存在：{md_path}（先生成再推：mpdt report --week <W>）")
     week = week or md.stem.replace("weekly-", "")
     cfg = _cfg()
-    if not allow_unlisted:
-        check_recipient(recipient, cfg)
-    elif (recipient or "").strip().lower() not in _self_addresses(cfg) and (
-        recipient or ""
-    ).strip().lower() not in _load_allowlist():
-        # --allow-unlisted 只放宽一次，且必须留痕
-        _log_unlisted(recipient, week)
+    _assert_allowed(recipient, week, cfg, allow_unlisted)
     if not force and already_pushed(week, recipient):
         return {
             "ok": True,
@@ -326,35 +353,18 @@ def send_report(
         }
 
     html_path = md.with_suffix(".html")
-    msg = EmailMessage()
-    msg["From"] = cfg["from"]
-    msg["To"] = recipient
-    msg["Subject"] = subject or (f"公众号数据周报 {week}")
-    intro = body_md or (
-        f"您好，\n\n这是您 {week} 的公众号数据周报（数据口径：文章发表日落在该周内）。\n"
-        "回复本邮件即可把问题直接发给我。\n\n"
+    # 组装是纯的（render.compose_report_email），发信才是壳的事
+    msg = render.compose_report_email(
+        cfg["from"],
+        recipient,
+        week,
+        md.read_text(encoding="utf-8", errors="replace"),
+        html_text=_html_inline(html_path),
+        subject=subject,
+        body_md=body_md,
     )
-    msg.set_content(intro + "\n" + md.read_text(encoding="utf-8", errors="replace"))
-    inline = _html_inline(html_path)
-    if inline:
-        msg.add_alternative(inline, subtype="html")
 
-    try:
-        ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(cfg["host"], cfg["port"], context=ctx, timeout=30) as s:
-            s.login(cfg["user"], cfg["password"])
-            s.send_message(msg)
-    except smtplib.SMTPAuthenticationError as e:
-        raise PushError(
-            "SMTP 认证失败：{}。请检查 {} / {} 是否为有效授权码。".format(
-                e, ENV_KEYS["user"], ENV_KEYS["password"]
-            )
-        ) from e
-    except (smtplib.SMTPException, OSError) as e:
-        raise PushError(
-            f"推送失败：{type(e).__name__}: {e}（网络或 SMTP 服务端问题，稍后重试；"
-            "本工具不会静默吞错）"
-        ) from e
+    _deliver(cfg, msg)
 
     conn = sqlite3.connect(str(_sent_db_path()))
     try:

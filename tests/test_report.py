@@ -14,6 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from mpdt import (  # noqa: E402
+    render,
     report,
     store,
 )
@@ -38,28 +39,28 @@ def _detail_metrics(
 
 class TestWeekBounds(unittest.TestCase):
     def test_midyear_week(self) -> None:
-        monday, sunday = report._week_bounds("2026-W42")
+        monday, sunday = render.week_bounds("2026-W42")
         self.assertEqual(monday.isoformat(), "2026-10-12")
         self.assertEqual(sunday.isoformat(), "2026-10-18")
 
     def test_year_boundary_into_next_year(self) -> None:
-        monday, sunday = report._week_bounds("2026-W01")
+        monday, sunday = render.week_bounds("2026-W01")
         self.assertEqual(monday.isoformat(), "2025-12-29")
         self.assertEqual(sunday.isoformat(), "2026-01-04")
 
     def test_week53_crosses_year_end(self) -> None:
-        monday, sunday = report._week_bounds("2020-W53")
+        monday, sunday = render.week_bounds("2020-W53")
         self.assertEqual(monday.isoformat(), "2020-12-28")
         self.assertEqual(sunday.isoformat(), "2021-01-03")
 
     def test_dayspan_is_seven(self) -> None:
-        monday, sunday = report._week_bounds("2024-W09")
+        monday, sunday = render.week_bounds("2024-W09")
         self.assertEqual((sunday - monday).days, 6)
 
 
 class TestMdTable(unittest.TestCase):
     def test_header_separator_and_rows(self) -> None:
-        md = report._md_table(["文章", "完读率"], [["甲", 0.25], ["乙", 0.5]])
+        md = render.md_table(["文章", "完读率"], [["甲", 0.25], ["乙", 0.5]])
         lines = md.splitlines()
         self.assertEqual(lines[0], "| 文章 | 完读率 |")
         self.assertEqual(lines[1], "|---|---|")
@@ -67,7 +68,7 @@ class TestMdTable(unittest.TestCase):
         self.assertEqual(lines[3], "| 乙 | 0.5 |")
 
     def test_empty_rows_only_header(self) -> None:
-        md = report._md_table(["a"], [])
+        md = render.md_table(["a"], [])
         self.assertEqual(md.splitlines(), ["| a |", "|---|"])
 
 
@@ -261,7 +262,7 @@ class TestHtmlTemplate(ReportBase):
 
     def test_table_cell_count_alignment(self) -> None:
         """数据行列数不足/超出表头时补空/截断，不错位。"""
-        html = report._md_table_html("| a | b | c |", ["| 1 |", "| 1 | 2 | 3 | 4 |"])
+        html = render.md_table_html("| a | b | c |", ["| 1 |", "| 1 | 2 | 3 | 4 |"])
         self.assertEqual(html.count("<td>"), 6)  # 2+3=6（补1空、截1多）
         self.assertIn("<td></td>", html)
 
@@ -270,7 +271,7 @@ class TestHtmlTemplate(ReportBase):
             "# 标题\n\n## 小节\n\n> 引用一\n> 引用二\n\n| H1 | H2 |\n|---|---|\n"
             "| a | b |\n\n普通段落 **加粗** 与 `code`。\n"
         )
-        h = report._md_to_html(md)
+        h = render.md_to_html(md)
         self.assertIn("<h1>标题</h1>", h)
         self.assertIn('<h2 id="sec-0">小节</h2>', h)
         self.assertIn("<blockquote>引用一<br>引用二</blockquote>", h)
@@ -309,14 +310,14 @@ class TestHtmlTemplate(ReportBase):
 
     def test_table_recognizes_separator_row(self) -> None:
         """无 --- 分隔行的 | 开头行不是表格（按段落渲染，防误判）。"""
-        h = report._md_to_html("| 不是表格 |\n| 也不是 |")
+        h = render.md_to_html("| 不是表格 |\n| 也不是 |")
         self.assertNotIn("<table>", h)
         self.assertIn("<p>| 不是表格 |</p>", h)
 
     def test_toc_nav_generated_with_anchors(self) -> None:
         """UX：有 h2 小节的报告 → 文首 <nav class="toc"> 目录 + 每个 h2 带 id 锚点。"""
         md = "# 标题\n\n## 甲节\n\n内容\n\n## 乙节\n\n内容\n"
-        h = report._md_to_html(md)
+        h = render.md_to_html(md)
         self.assertIn('<nav class="toc">', h)
         self.assertIn('href="#sec-0"', h)
         self.assertIn('href="#sec-1"', h)
@@ -328,14 +329,14 @@ class TestHtmlTemplate(ReportBase):
     def test_toc_anchors_match_h2_sequence(self) -> None:
         """目录链接与 h2 id 一一对应（两遍推导不漂移）。"""
         md = "# T\n\n## A\n\n## B\n\n## C\n"
-        h = report._md_to_html(md)
+        h = render.md_to_html(md)
         for i, t in enumerate("ABC"):
             self.assertIn(f'<a href="#sec-{i}">{t}</a>', h)
             self.assertIn(f'<h2 id="sec-{i}">{t}</h2>', h)
 
     def test_no_h2_no_toc(self) -> None:
         """无 h2 的报告不生成空目录。"""
-        h = report._md_to_html("# 只有 h1\n\n段落\n")
+        h = render.md_to_html("# 只有 h1\n\n段落\n")
         self.assertNotIn('<nav class="toc">', h)
 
 

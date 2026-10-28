@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from . import __version__, config, push, report, store
+from . import __version__, config, push, report, shape, store
 from . import metrics as metrics_mod
 from .errors import MpdtError, UpstreamError
 
@@ -197,6 +197,64 @@ def cmd_fetch(args):
 RES = [None]  # main() 里按 TTY 情况构造
 
 
+def _usage_error(cmd: str, message: str) -> int:
+    """参数错误：--json 时输出机器可读错误，否则打到 stderr；返回退出码 2。"""
+    if JSON_FLAG[0]:
+        print(
+            json.dumps(
+                {"ok": False, "cmd": cmd, "error": {"exit_code": 2, "message": message}},
+                ensure_ascii=False,
+            )
+        )
+    else:
+        print(f"[mpdt] 错误（退出码 2）：{message}", file=sys.stderr)
+    return 2
+
+
+def _snapshot_one_detail(s, con, mid, idx, pub, stat_date, ad_mod) -> tuple[dict, str]:
+    """抓一篇并入库 → (摘要, 一行人读文本)。失败抛异常，由调用方计数。"""
+    d = ad_mod.fetch(s, mid, idx, pub)
+    metrics = shape.detail_metrics(d, ad_mod.ALL_SCENE)
+    store.upsert(con, "article_detail", stat_date, d["appmsgid"], d["itemidx"], d["title"], metrics)
+    return shape.detail_view(d, metrics)
+
+
+def _detail_targets(args, s, today, pl_mod):
+    """本次要抓哪几篇 → [(mid, idx, pub)]；参数不合法返回 None。
+
+    --msgid 直指一篇；否则按 --recent 天从发表记录里筛（去重、按发表日）。
+    """
+    if args.msgid:
+        if not args.publish_date:
+            return None
+        return [(args.msgid, args.item_idx, args.publish_date)]
+    days = args.recent or 30
+    pl = pl_mod.fetch(s, count=args.count)
+    cutoff = (today - dt.timedelta(days=days - 1)).isoformat()
+    targets = shape.select_recent_articles(pl["articles"], cutoff)
+    RES[0].say(f"最近 {days} 天发表记录命中 {len(targets)} 篇，开始抓单篇渠道页（≥1s/篇）…")
+    return targets
+
+
+def _snapshot_all_details(r, s, con, targets, stat_date, ad_mod) -> tuple[int, int, list]:
+    """逐篇抓取 + 入库（壳）：单篇失败不打断整批，但会计数并留日志。"""
+    ok, fail, items = 0, 0, []
+    for t_i, (mid, idx, pub) in enumerate(targets, 1):
+        r.progress(t_i, len(targets), f"{mid}_{idx}（≥1s/篇限速）")
+        try:
+            summary, line = _snapshot_one_detail(s, con, mid, idx, pub, stat_date, ad_mod)
+        except MpdtError as e:
+            fail += 1
+            r.say(f"  ! {mid}_{idx} 跳过：{e}")
+            print(f"  ! {mid}_{idx} 跳过：{e}", file=sys.stderr)
+            store.log_run(con, f"detail:{mid}_{idx}", False, str(e)[:200])
+            continue
+        ok += 1
+        items.append(summary)
+        r.say(line)
+    return ok, fail, items
+
+
 def cmd_detail(args):
     """单篇渠道页（FR3②）：完读率/时长/互动 + 逐渠道人数构成（含推荐/搜一搜）。"""
     r = RES[0]
@@ -209,94 +267,12 @@ def cmd_detail(args):
     con = store.connect(cfg["db_path"])
     today = today_shanghai()
     stat_date = today.isoformat()
-    targets = []
-    if args.msgid:
-        if not args.publish_date:
-            if JSON_FLAG[0]:
-                print(
-                    json.dumps(
-                        {
-                            "ok": False,
-                            "cmd": "detail",
-                            "error": {
-                                "exit_code": 2,
-                                "message": "--msgid 需同时给 --publish-date YYYY-MM-DD",
-                            },
-                        },
-                        ensure_ascii=False,
-                    )
-                )
-            else:
-                print(
-                    "[mpdt] 错误（退出码 2）：--msgid 需同时给 --publish-date YYYY-MM-DD",
-                    file=sys.stderr,
-                )
-            return 2
-        targets.append((args.msgid, args.item_idx, args.publish_date))
-    else:
-        days = args.recent or 30
-        pl = pl_mod.fetch(s, count=args.count)
-        cutoff = (today - dt.timedelta(days=days - 1)).isoformat()
-        seen = set()
-        for a in pl["articles"]:
-            if not a.get("publish_date") or a["publish_date"] < cutoff:
-                continue
-            key = (str(a["appmsgid"]), int(a["itemidx"]))
-            if key in seen:
-                continue
-            seen.add(key)
-            targets.append((key[0], key[1], a["publish_date"]))
-        r.say(f"最近 {days} 天发表记录命中 {len(targets)} 篇，开始抓单篇渠道页（≥1s/篇）…")
-    ok, fail = 0, 0
-    ok_items = []
-    n_targets = len(targets)
-    for t_i, (mid, idx, pub) in enumerate(targets, 1):
-        r.progress(t_i, n_targets, f"{mid}_{idx}（≥1s/篇限速）")
-        try:
-            d = ad_mod.fetch(s, mid, idx, pub)
-        except MpdtError as e:
-            fail += 1
-            r.say(f"  ! {mid}_{idx} 跳过：{e}")
-            print(f"  ! {mid}_{idx} 跳过：{e}", file=sys.stderr)
-            store.log_run(con, f"detail:{mid}_{idx}", False, str(e)[:200])
-            continue
-        metrics = dict(d["metrics"])
-        metrics.update(
-            {
-                "publish_date": d["publish_date"],
-                "window_days": d["window_days"],
-                "total_read_user": sum(
-                    rr["read_user"] for rr in d["channels"] if rr["scene"] == ad_mod.ALL_SCENE
-                ),
-                "channel_breakdown": d["channel_breakdown"],
-            }
-        )
-        store.upsert(
-            con, "article_detail", stat_date, d["appmsgid"], d["itemidx"], d["title"], metrics
-        )
-        ok += 1
-        top = d["channel_breakdown"][0] if d["channel_breakdown"] else None
-        rec = next((rr for rr in d["channel_breakdown"] if rr["scene_label"] == "推荐"), None)
-        ok_items.append(
-            {
-                "appmsgid": d["appmsgid"],
-                "itemidx": d["itemidx"],
-                "title": d["title"],
-                "publish_date": d["publish_date"],
-                "read_uv": metrics.get("read_uv"),
-                "finished_read_pv_ratio": metrics.get("finished_read_pv_ratio"),
-                "top_channel": (top or {}).get("scene_label"),
-                "top_channel_pct": (top or {}).get("read_pct"),
-                "recommend_pct": (rec or {}).get("read_pct"),
-            }
-        )
-        ratio = metrics.get("finished_read_pv_ratio")
-        ratio_txt = f"{100 * ratio:.1f}%" if isinstance(ratio, (int, float)) else "NA"
-        r.say(
-            f"  ✓ {d['appmsgid']}_{d['itemidx']} 阅读{metrics.get('read_uv')} 完读率{ratio_txt} "
-            f"推荐{(rec or {}).get('read_pct', 'NA')}% "
-            f"首渠道={(top or {}).get('scene_label', 'NA')}({(top or {}).get('read_pct', 'NA')}%)"
-        )
+
+    targets = _detail_targets(args, s, today, pl_mod)
+    if targets is None:
+        return _usage_error("detail", "--msgid 需同时给 --publish-date YYYY-MM-DD")
+
+    ok, fail, ok_items = _snapshot_all_details(r, s, con, targets, stat_date, ad_mod)
     store.log_run(
         con,
         "fetch:article_detail",
@@ -769,7 +745,12 @@ def cmd_export(args):
     return r.result(msg, meta)
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """命令行定义（纯）：只构造 parser，不解析、不读环境、不打印。
+
+    拆出来的理由：解析规则是可测的（给定 argv → 得到什么 Namespace），
+    而 main 只该负责"执行 + 把异常翻译成退出码"。
+    """
     p = argparse.ArgumentParser(
         prog="mpdt",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -991,6 +972,11 @@ def main(argv=None) -> int:
     )
     ps.set_defaults(fn=cmd_status)
 
+    return p
+
+
+def main(argv=None) -> int:
+    p = build_parser()
     p.parse_known_args(argv)[0] if argv is not None else None
     args = p.parse_args(argv)
     # 全局态：--json 与 TTY 检测（非 TTY=管道/重定向/cron，过程输出默认静默，结果仍打印）
